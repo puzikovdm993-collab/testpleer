@@ -1,11 +1,19 @@
+// Constants
+const VOLUME_STEP = 5;
+const DEFAULT_VOLUME = 75;
+const MAX_VOLUME = 100;
+const RESTART_THRESHOLD = 3; // seconds
+
 // Audio Player State
 const state = {
     playlist: [],
-    currentTrackIndex: 0,
+    currentTrackIndex: -1,
     isPlaying: false,
     isShuffle: false,
-    repeatMode: 'none', // 'none', 'all', 'one'
-    shuffledIndices: []
+    repeatMode: 'off', // 'off', 'all', 'one'
+    shuffledIndices: [],
+    volume: DEFAULT_VOLUME,
+    isMuted: false
 };
 
 // DOM Elements
@@ -32,13 +40,13 @@ const shuffleModeBtn = document.getElementById('shuffleModeBtn');
 const repeatModeBtn = document.getElementById('repeatModeBtn');
 
 // Volume mute state
-let previousVolume = 0.75;
+let previousVolume = DEFAULT_VOLUME / 100;
 
 // Initialize
 function init() {
     setupEventListeners();
     loadPlaylistFromStorage();
-    loadSavedVolume();
+    updateVolumeDisplay();
     updatePlaylistDisplay();
 }
 
@@ -160,6 +168,17 @@ function updatePlaylistDisplay() {
 
 // Remove Track
 function removeTrack(index) {
+    const track = state.playlist[index];
+    
+    // Clean up blob URL to prevent memory leaks
+    if (track && track.src && track.src.startsWith('blob:')) {
+        try {
+            URL.revokeObjectURL(track.src);
+        } catch (e) {
+            console.warn('Failed to revoke blob URL:', e);
+        }
+    }
+    
     state.playlist.splice(index, 1);
     
     if (state.currentTrackIndex >= state.playlist.length) {
@@ -224,15 +243,21 @@ function pauseTrack() {
 function playPrevious() {
     if (state.playlist.length === 0) return;
     
-    if (audioPlayer.currentTime > 3) {
+    if (audioPlayer.currentTime > RESTART_THRESHOLD) {
         audioPlayer.currentTime = 0;
     } else {
         let newIndex;
-        if (state.isShuffle) {
+        if (state.isShuffle && state.shuffledIndices.length > 0) {
             const currentIndex = state.shuffledIndices.indexOf(state.currentTrackIndex);
-            newIndex = currentIndex > 0 
-                ? state.shuffledIndices[currentIndex - 1]
-                : state.shuffledIndices[state.shuffledIndices.length - 1];
+            // Handle case when current track is not in shuffled indices
+            if (currentIndex === -1) {
+                // Start from the last track in shuffled order
+                newIndex = state.shuffledIndices[state.shuffledIndices.length - 1];
+            } else {
+                newIndex = currentIndex > 0 
+                    ? state.shuffledIndices[currentIndex - 1]
+                    : state.shuffledIndices[state.shuffledIndices.length - 1];
+            }
         } else {
             newIndex = state.currentTrackIndex - 1;
             if (newIndex < 0) newIndex = state.playlist.length - 1;
@@ -246,11 +271,17 @@ function playNext() {
     if (state.playlist.length === 0) return;
     
     let newIndex;
-    if (state.isShuffle) {
+    if (state.isShuffle && state.shuffledIndices.length > 0) {
         const currentIndex = state.shuffledIndices.indexOf(state.currentTrackIndex);
-        newIndex = currentIndex < state.shuffledIndices.length - 1
-            ? state.shuffledIndices[currentIndex + 1]
-            : state.shuffledIndices[0];
+        // Handle case when current track is not in shuffled indices
+        if (currentIndex === -1) {
+            // Start from the first track in shuffled order
+            newIndex = state.shuffledIndices[0];
+        } else {
+            newIndex = currentIndex < state.shuffledIndices.length - 1
+                ? state.shuffledIndices[currentIndex + 1]
+                : state.shuffledIndices[0];
+        }
     } else {
         newIndex = state.currentTrackIndex + 1;
         if (newIndex >= state.playlist.length) newIndex = 0;
@@ -261,10 +292,12 @@ function playNext() {
 
 // Handle Track End
 function handleTrackEnd() {
+    if (state.playlist.length === 0) return;
+    
     switch (state.repeatMode) {
         case 'one':
             audioPlayer.currentTime = 0;
-            playTrack();
+            playTrack().catch(e => console.warn('Playback failed:', e));
             break;
         case 'all':
             playNext();
@@ -342,27 +375,35 @@ function seekTrack() {
     audioPlayer.currentTime = time;
 }
 
+// Set Volume
 function setVolume() {
-    audioPlayer.volume = volumeBar.value / 100;
+    const volumeValue = parseInt(volumeBar.value);
+    state.volume = volumeValue;
+    audioPlayer.volume = volumeValue / 100;
+    state.isMuted = (volumeValue === 0);
     updateVolumeIcon();
     // Save volume to localStorage
-    localStorage.setItem('playerVolume', volumeBar.value);
+    localStorage.setItem('playerVolume', volumeValue.toString());
 }
 
 // Toggle Mute
 function toggleMute() {
-    if (audioPlayer.volume > 0) {
+    state.isMuted = !state.isMuted;
+    
+    if (state.isMuted) {
         previousVolume = audioPlayer.volume;
         audioPlayer.volume = 0;
         volumeBar.value = 0;
-        volumeIcon.classList.add('muted');
-        updateVolumeIconDisplay(0);
+        state.volume = 0;
     } else {
-        audioPlayer.volume = previousVolume;
-        volumeBar.value = previousVolume * 100;
-        volumeIcon.classList.remove('muted');
-        updateVolumeIconDisplay(previousVolume);
+        const restoreVolume = previousVolume > 0 ? previousVolume : (DEFAULT_VOLUME / 100);
+        audioPlayer.volume = restoreVolume;
+        volumeBar.value = Math.round(restoreVolume * 100);
+        state.volume = Math.round(restoreVolume * 100);
     }
+    
+    volumeIcon.classList.toggle('muted', state.isMuted);
+    updateVolumeIconDisplay(audioPlayer.volume);
     localStorage.setItem('playerVolume', volumeBar.value);
 }
 
@@ -385,12 +426,23 @@ function updateVolumeIconDisplay(volume) {
     }
 }
 
+// Update Volume Display
+function updateVolumeDisplay() {
+    volumeBar.value = state.volume;
+    audioPlayer.volume = state.volume / 100;
+    updateVolumeIcon();
+}
+
 // Load saved volume
 function loadSavedVolume() {
     const savedVolume = localStorage.getItem('playerVolume');
     if (savedVolume !== null) {
-        volumeBar.value = savedVolume;
-        audioPlayer.volume = savedVolume / 100;
+        const vol = parseInt(savedVolume);
+        state.volume = vol;
+        volumeBar.value = vol;
+        audioPlayer.volume = vol / 100;
+        state.isMuted = (vol === 0);
+        previousVolume = vol > 0 ? vol / 100 : DEFAULT_VOLUME / 100;
         updateVolumeIcon();
     }
 }
@@ -575,13 +627,17 @@ function handleKeyboard(e) {
             break;
         case 'ArrowUp':
             e.preventDefault();
-            volumeBar.value = Math.min(100, parseInt(volumeBar.value) + 5);
+            volumeBar.value = Math.min(MAX_VOLUME, parseInt(volumeBar.value) + VOLUME_STEP);
             setVolume();
             break;
         case 'ArrowDown':
             e.preventDefault();
-            volumeBar.value = Math.max(0, parseInt(volumeBar.value) - 5);
+            volumeBar.value = Math.max(0, parseInt(volumeBar.value) - VOLUME_STEP);
             setVolume();
+            break;
+        case 'KeyM':
+            e.preventDefault();
+            toggleMute();
             break;
     }
 }
