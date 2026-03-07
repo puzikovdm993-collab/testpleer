@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Аудио Плеер</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="player-container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🎵 Аудио Плеер</h1>
+        </header>
+
+        <!-- Main Player Section -->
+        <section class="player-section">
+            <div class="now-playing">
+                <div class="album-art">
+                    <div class="album-art-placeholder">🎶</div>
+                </div>
+                <div class="track-info">
+                    <h2 class="track-title">Нет трека</h2>
+                    <p class="track-artist">Загрузите файлы для начала</p>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="control-buttons">
+                    <button class="control-btn" id="shuffleBtn" title="Перемешать">
+                        🔀
+                    </button>
+                    <button class="control-btn" id="prevBtn" title="Предыдущий">
+                        ⏮️
+                    </button>
+                    <button class="control-btn play-btn" id="playBtn" title="Воспроизвести/Пауза">
+                        ▶️
+                    </button>
+                    <button class="control-btn" id="nextBtn" title="Следующий">
+                        ⏭️
+                    </button>
+                    <button class="control-btn" id="repeatBtn" title="Повтор">
+                        🔁
+                    </button>
+                </div>
+
+                <div class="progress-container">
+                    <span class="time" id="currentTime">0:00</span>
+                    <input type="range" class="progress-bar" id="progressBar" min="0" max="100" value="0">
+                    <span class="time" id="duration">0:00</span>
+                </div>
+
+                <div class="volume-container">
+                    <span class="volume-icon">🔊</span>
+                    <input type="range" class="volume-bar" id="volumeBar" min="0" max="100" value="75">
+                </div>
+            </div>
+        </section>
+
+        <!-- Playlist Section -->
+        <section class="playlist-section">
+            <div class="playlist-header">
+                <h3>📋 Плейлист (<span id="trackCount">0</span>)</h3>
+                <div class="playlist-actions">
+                    <label class="file-upload-btn">
+                        📁 Добавить файлы
+                        <input type="file" id="fileInput" multiple accept="audio/*" hidden>
+                    </label>
+                    <button class="action-btn" id="exportBtn" title="Экспортировать плейлист">
+                        💾 Экспорт
+                    </button>
+                    <label class="action-btn" title="Импортировать плейлист">
+                        📂 Импорт
+                        <input type="file" id="importInput" accept=".json" hidden>
+                    </label>
+                    <button class="action-btn clear-btn" id="clearBtn" title="Очистить плейлист">
+                        🗑️ Очистить
+                    </button>
+                </div>
+            </div>
+
+            <div class="playlist-controls">
+                <button class="mode-btn" id="shuffleModeBtn">
+                    🔀 Перемешать
+                </button>
+                <button class="mode-btn" id="repeatModeBtn">
+                    🔁 Повтор
+                </button>
+            </div>
+
+            <ul class="playlist" id="playlist">
+                <!-- Tracks will be added here -->
+            </ul>
+        </section>
+    </div>
+
+    <audio id="audioPlayer"></audio>
+    <script src="script.js"></script>
+</body>
+</html>
