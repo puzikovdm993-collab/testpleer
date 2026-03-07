@@ -50,6 +50,44 @@ function init() {
     updatePlaylistDisplay();
 }
 
+// Show Error Notification
+function showError(message) {
+    // Создаем элемент уведомления, если его нет
+    let errorEl = document.getElementById('errorNotification');
+    
+    if (!errorEl) {
+        errorEl = document.createElement('div');
+        errorEl.id = 'errorNotification';
+        errorEl.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #ff4444;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 10000;
+            max-width: 400px;
+            font-size: 14px;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s ease;
+        `;
+        document.body.appendChild(errorEl);
+    }
+    
+    errorEl.textContent = message;
+    errorEl.style.opacity = '1';
+    errorEl.style.transform = 'translateX(0)';
+    
+    // Скрываем через 5 секунд
+    setTimeout(() => {
+        errorEl.style.opacity = '0';
+        errorEl.style.transform = 'translateX(100%)';
+    }, 5000);
+}
+
 // Setup Event Listeners
 function setupEventListeners() {
     // Playback controls
@@ -68,6 +106,7 @@ function setupEventListeners() {
     audioPlayer.addEventListener('timeupdate', updateProgress);
     audioPlayer.addEventListener('loadedmetadata', updateDuration);
     audioPlayer.addEventListener('ended', handleTrackEnd);
+    audioPlayer.addEventListener('error', handleAudioError);
 
     // File handling
     fileInput.addEventListener('change', handleFileUpload);
@@ -86,6 +125,14 @@ function setupEventListeners() {
 // File Upload Handler
 function handleFileUpload(e) {
     const files = Array.from(e.target.files);
+    
+    if (files.length === 0) {
+        showError('Файлы не выбраны');
+        return;
+    }
+    
+    let loadedCount = 0;
+    let errorCount = 0;
     
     files.forEach(file => {
         if (file.type.startsWith('audio/')) {
@@ -106,6 +153,18 @@ function handleFileUpload(e) {
                 track.duration = tempAudio.duration;
                 updatePlaylistDisplay();
             });
+            
+            tempAudio.addEventListener('error', () => {
+                errorCount++;
+                console.error(`Failed to load metadata for ${file.name}`);
+                // Очищаем blob URL при ошибке
+                URL.revokeObjectURL(url);
+            });
+            
+            loadedCount++;
+        } else {
+            errorCount++;
+            console.warn(`Skipping non-audio file: ${file.name}`);
         }
     });
 
@@ -113,8 +172,13 @@ function handleFileUpload(e) {
     updatePlaylistDisplay();
     
     // Play first track if nothing is playing
-    if (state.playlist.length === files.length && !state.isPlaying) {
+    if (state.playlist.length === loadedCount && !state.isPlaying && loadedCount > 0) {
         loadTrack(0);
+    }
+    
+    // Показываем уведомление о результатах загрузки
+    if (errorCount > 0) {
+        showError(`Загружено файлов: ${loadedCount}, ошибок: ${errorCount}`);
     }
 
     // Clear input
@@ -226,11 +290,43 @@ function togglePlay() {
 function playTrack() {
     if (state.playlist.length === 0) return;
     
+    // Проверка наличия текущего трека
+    const currentTrack = state.playlist[state.currentTrackIndex];
+    if (!currentTrack || !currentTrack.src) {
+        console.warn('No track selected or track source is missing');
+        return;
+    }
+    
+    // Проверка валидности источника
+    if (currentTrack.src.startsWith('blob:')) {
+        // Проверяем, существует ли blob
+        try {
+            const xhr = new XMLHttpRequest();
+            xhr.open('HEAD', currentTrack.src, false);
+            xhr.send();
+            if (xhr.status === 404) {
+                console.error('Blob URL is invalid or expired');
+                showError('Файл недоступен. Пожалуйста, загрузите его снова.');
+                return;
+            }
+        } catch (e) {
+            // Игнорируем ошибки CORS для blob
+        }
+    }
+    
     audioPlayer.play().then(() => {
         state.isPlaying = true;
         playBtn.textContent = '⏸️';
     }).catch(err => {
         console.error('Playback failed:', err);
+        showError('Не удалось воспроизвести трек: ' + err.message);
+        
+        // Автоматический переход к следующему треку при ошибке
+        if (err.name === 'NotSupportedError' || err.name === 'MediaElementSourceError') {
+            setTimeout(() => {
+                playNext();
+            }, 500);
+        }
     });
 }
 
@@ -311,6 +407,41 @@ function handleTrackEnd() {
     }
 }
 
+// Handle Audio Error
+function handleAudioError(e) {
+    const error = audioPlayer.error;
+    if (!error) return;
+    
+    let errorMessage = 'Ошибка воспроизведения';
+    
+    switch (error.code) {
+        case MediaError.MEDIA_ERR_ABORTED:
+            errorMessage = 'Воспроизведение отменено пользователем';
+            break;
+        case MediaError.MEDIA_ERR_NETWORK:
+            errorMessage = 'Ошибка сети при загрузке аудио';
+            break;
+        case MediaError.MEDIA_ERR_DECODE:
+            errorMessage = 'Ошибка декодирования аудиофайла';
+            break;
+        case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMessage = 'Формат файла не поддерживается или файл поврежден';
+            break;
+        default:
+            errorMessage = `Неизвестная ошибка: ${error.message}`;
+    }
+    
+    console.error('Audio error:', errorMessage, error);
+    showError(errorMessage);
+    
+    // Пытаемся переключиться на следующий трек
+    if (state.currentTrackIndex < state.playlist.length - 1) {
+        setTimeout(() => {
+            playNext();
+        }, 500);
+    }
+}
+
 // Shuffle
 function toggleShuffle() {
     state.isShuffle = !state.isShuffle;
@@ -371,7 +502,20 @@ function updateDuration() {
 }
 
 function seekTrack() {
+    // Проверка на валидность duration
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+        console.warn('Cannot seek: invalid duration');
+        return;
+    }
+    
     const time = (progressBar.value / 100) * audioPlayer.duration;
+    
+    // Проверка на валидность времени
+    if (!isFinite(time)) {
+        console.warn('Cannot seek: invalid time value');
+        return;
+    }
+    
     audioPlayer.currentTime = time;
 }
 
