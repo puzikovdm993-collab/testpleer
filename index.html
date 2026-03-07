@@ -11,6 +11,10 @@
         <!-- Header -->
         <header class="header">
             <h1>🎵 Аудио Плеер</h1>
+            <div class="volume-container">
+                <span class="volume-icon" id="volumeIcon" title="Выключить звук">🔊</span>
+                <input type="range" class="volume-bar" id="volumeBar" min="0" max="100" value="75">
+            </div>
         </header>
 
         <!-- Main Player Section -->
@@ -48,11 +52,6 @@
                     <span class="time" id="currentTime">0:00</span>
                     <input type="range" class="progress-bar" id="progressBar" min="0" max="100" value="0">
                     <span class="time" id="duration">0:00</span>
-                </div>
-
-                <div class="volume-container">
-                    <span class="volume-icon">🔊</span>
-                    <input type="range" class="volume-bar" id="volumeBar" min="0" max="100" value="75">
                 </div>
             </div>
         </section>

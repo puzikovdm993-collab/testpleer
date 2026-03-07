@@ -17,6 +17,7 @@ const shuffleBtn = document.getElementById('shuffleBtn');
 const repeatBtn = document.getElementById('repeatBtn');
 const progressBar = document.getElementById('progressBar');
 const volumeBar = document.getElementById('volumeBar');
+const volumeIcon = document.getElementById('volumeIcon');
 const currentTimeEl = document.getElementById('currentTime');
 const durationEl = document.getElementById('duration');
 const trackTitle = document.querySelector('.track-title');
@@ -30,10 +31,14 @@ const clearBtn = document.getElementById('clearBtn');
 const shuffleModeBtn = document.getElementById('shuffleModeBtn');
 const repeatModeBtn = document.getElementById('repeatModeBtn');
 
+// Volume mute state
+let previousVolume = 0.75;
+
 // Initialize
 function init() {
     setupEventListeners();
     loadPlaylistFromStorage();
+    loadSavedVolume();
     updatePlaylistDisplay();
 }
 
@@ -49,6 +54,7 @@ function setupEventListeners() {
     // Progress and volume
     progressBar.addEventListener('input', seekTrack);
     volumeBar.addEventListener('input', setVolume);
+    volumeIcon.addEventListener('click', toggleMute);
 
     // Audio events
     audioPlayer.addEventListener('timeupdate', updateProgress);
@@ -338,6 +344,55 @@ function seekTrack() {
 
 function setVolume() {
     audioPlayer.volume = volumeBar.value / 100;
+    updateVolumeIcon();
+    // Save volume to localStorage
+    localStorage.setItem('playerVolume', volumeBar.value);
+}
+
+// Toggle Mute
+function toggleMute() {
+    if (audioPlayer.volume > 0) {
+        previousVolume = audioPlayer.volume;
+        audioPlayer.volume = 0;
+        volumeBar.value = 0;
+        volumeIcon.classList.add('muted');
+        updateVolumeIconDisplay(0);
+    } else {
+        audioPlayer.volume = previousVolume;
+        volumeBar.value = previousVolume * 100;
+        volumeIcon.classList.remove('muted');
+        updateVolumeIconDisplay(previousVolume);
+    }
+    localStorage.setItem('playerVolume', volumeBar.value);
+}
+
+// Update Volume Icon Display
+function updateVolumeIcon() {
+    const volume = audioPlayer.volume;
+    updateVolumeIconDisplay(volume);
+}
+
+function updateVolumeIconDisplay(volume) {
+    if (volume === 0) {
+        volumeIcon.textContent = '🔇';
+        volumeIcon.title = 'Включить звук';
+    } else if (volume < 0.5) {
+        volumeIcon.textContent = '🔉';
+        volumeIcon.title = 'Выключить звук';
+    } else {
+        volumeIcon.textContent = '🔊';
+        volumeIcon.title = 'Выключить звук';
+    }
+}
+
+// Load saved volume
+function loadSavedVolume() {
+    const savedVolume = localStorage.getItem('playerVolume');
+    if (savedVolume !== null) {
+        volumeBar.value = savedVolume;
+        audioPlayer.volume = savedVolume / 100;
+        updateVolumeIcon();
+    }
 }
 
 // Format Time

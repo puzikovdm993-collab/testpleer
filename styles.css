@@ -31,7 +31,9 @@ body {
     backdrop-filter: blur(10px);
     border-radius: 6px;
     padding: 8px 15px;
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     border: 1px solid rgba(255, 255, 255, 0.2);
     flex-shrink: 0;
 }
@@ -42,6 +44,55 @@ body {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+}
+
+/* Volume Control - Compact */
+.volume-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.volume-icon {
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.volume-icon:hover {
+    transform: scale(1.15);
+}
+
+.volume-icon.muted {
+    opacity: 0.5;
+}
+
+.volume-bar {
+    width: 100px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    cursor: pointer;
+    outline: none;
+}
+
+.volume-bar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 10px;
+    background: linear-gradient(135deg, #00d9ff, #00ff88);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.volume-bar::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
 }
 
 /* Player Section - Compact */
@@ -195,43 +246,6 @@ body {
 
 .progress-bar::-webkit-slider-thumb:hover {
     transform: scale(1.2);
-}
-
-/* Volume Control - Compact */
-.volume-container {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    width: auto;
-    max-width: 120px;
-    position: absolute;
-    right: 15px;
-    top: 10px;
-}
-
-.volume-icon {
-    font-size: 0.9rem;
-}
-
-.volume-bar {
-    flex: 1;
-    height: 3px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
-    cursor: pointer;
-    outline: none;
-}
-
-.volume-bar::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 8px;
-    height: 8px;
-    background: #fff;
-    border-radius: 50%;
-    cursor: pointer;
 }
 
 /* Playlist Section - Compact */
@@ -477,8 +491,6 @@ body {
     }
 
     .volume-container {
-        position: static;
-        max-width: 100px;
         justify-content: center;
     }
 
