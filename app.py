@@ -304,6 +304,12 @@ def serve_index():
 @app.route('/<path:filename>')
 def serve_static(filename):
     """Отдать статические файлы."""
+    # Проверяем существование файла перед отправкой
+    if not os.path.exists(filename):
+        # Если запрошен favicon и его нет, возвращаем пустой ответ
+        if filename == 'favicon.ico':
+            return '', 204
+        return jsonify({'error': 'File not found'}), 404
     return send_file(filename)
 
 if __name__ == '__main__':
