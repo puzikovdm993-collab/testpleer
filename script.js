@@ -615,6 +615,9 @@ function loadTrack(index) {
     currentTimeEl.textContent = '0:00';
     durationEl.textContent = '0:00';
     
+    // Сбрасываем длительность в null чтобы предотвратить некорректные значения
+    audioPlayer.removeAttribute('duration');
+    
     updatePlaylistDisplay();
 }
 
@@ -633,6 +636,12 @@ function playTrack() {
     if (state.playlist.length === 0) return;
     
     // Проверка наличия текущего трека
+    if (state.currentTrackIndex < 0 || state.currentTrackIndex >= state.playlist.length) {
+        console.warn('No track selected');
+        showError('Трек не выбран');
+        return;
+    }
+    
     const currentTrack = state.playlist[state.currentTrackIndex];
     if (!currentTrack || !currentTrack.src) {
         console.warn('No track selected or track source is missing');
@@ -851,7 +860,7 @@ function cycleRepeatMode() {
 // Progress and Volume
 function updateProgress() {
     // Проверка на валидность duration перед обновлением прогресса
-    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) {
         return;
     }
     
@@ -862,7 +871,7 @@ function updateProgress() {
 
 function updateDuration() {
     // Проверка на валидность duration
-    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) {
         console.warn('Invalid duration received');
         return;
     }
@@ -878,7 +887,7 @@ function updateDuration() {
 
 function seekTrack() {
     // Проверка на валидность duration
-    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) {
         console.warn('Cannot seek: invalid duration');
         return;
     }
@@ -886,7 +895,7 @@ function seekTrack() {
     const time = (progressBar.value / 100) * audioPlayer.duration;
     
     // Проверка на валидность времени
-    if (!isFinite(time)) {
+    if (!isFinite(time) || time < 0) {
         console.warn('Cannot seek: invalid time value');
         return;
     }
