@@ -6,6 +6,7 @@ Flask сервер для аудио плеера с интеграцией MinI
 import os
 import json
 import hashlib
+import base64
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
 from flask_cors import CORS
@@ -203,13 +204,15 @@ def upload_track():
             if not allowed_file(file.filename):
                 return jsonify({'error': f'File type not allowed: {file.filename}'}), 400
             
-            # Получаем оригинальное имя файла и используем его как имя для хранения
+            # Получаем оригинальное имя файла
             original_filename = file.filename
             ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'mp3'
             
-            # Используем безопасное имя файла (без расширения)
+            # Кодируем имя файла в Base64 для безопасного использования в качестве ключа объекта
+            # Это решает проблему SignatureDoesNotMatch с не-ASCII символами
             name_without_ext = original_filename.rsplit('.', 1)[0]
-            safe_filename = f"{name_without_ext}.{ext}"
+            safe_name = base64.urlsafe_b64encode(name_without_ext.encode('utf-8')).decode('ascii')
+            safe_filename = f"{safe_name}.{ext}"
             
             # Читаем файл в память
             file_data = file.read()
