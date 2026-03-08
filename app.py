@@ -6,7 +6,6 @@ Flask сервер для аудио плеера с интеграцией MinI
 import os
 import json
 import hashlib
-import base64
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, Response
 from flask_cors import CORS
@@ -14,7 +13,6 @@ from minio import Minio
 from minio.error import S3Error
 from werkzeug.utils import secure_filename
 from io import BytesIO
-from cryptography.fernet import Fernet
 
 app = Flask(__name__)
 CORS(app)
@@ -25,37 +23,6 @@ MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY', 'minioadmin')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'minioadmin')
 MINIO_BUCKET = os.getenv('MINIO_BUCKET', 'music')
 MINIO_SECURE = os.getenv('MINIO_SECURE', 'false').lower() == 'true'
-
-# Ключ шифрования для имен файлов (генерируется один раз и хранится в переменной окружения)
-ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
-if not ENCRYPTION_KEY:
-    # Если ключ не задан, генерируем новый (в продакшене нужно сохранять ключ!)
-    ENCRYPTION_KEY = Fernet.generate_key().decode('utf-8')
-    print(f"⚠ Сгенерирован новый ключ шифрования: {ENCRYPTION_KEY}")
-    print("⚠ Сохраните его в переменной окружения ENCRYPTION_KEY для последующих запусков")
-else:
-    ENCRYPTION_KEY = ENCRYPTION_KEY.encode('utf-8')
-
-cipher_suite = Fernet(ENCRYPTION_KEY if isinstance(ENCRYPTION_KEY, bytes) else ENCRYPTION_KEY.encode('utf-8'))
-
-def encrypt_filename(filename):
-    """Зашифровать имя файла."""
-    encrypted = cipher_suite.encrypt(filename.encode('utf-8'))
-    # Кодируем в base64 и заменяем символы для безопасности в URL/именах файлов
-    return base64.urlsafe_b64encode(encrypted).decode('utf-8').replace('=', '')
-
-def decrypt_filename(encrypted_filename):
-    """Расшифровать имя файла."""
-    # Добавляем padding обратно если нужно
-    padding = 4 - len(encrypted_filename) % 4
-    if padding != 4:
-        encrypted_filename += '=' * padding
-    try:
-        decoded = base64.urlsafe_b64decode(encrypted_filename)
-        decrypted = cipher_suite.decrypt(decoded)
-        return decrypted.decode('utf-8')
-    except Exception:
-        return None
 
 # Инициализация клиента MinIO
 minio_client = None
@@ -133,17 +100,8 @@ def get_tracks():
             # Получаем метаданные объекта
             stat = client.stat_object(MINIO_BUCKET, obj.object_name)
             
-            # Пытаемся расшифровать имя файла
-            encrypted_name = obj.object_name.rsplit('.', 1)[0]
-            decrypted_name = decrypt_filename(encrypted_name)
-            
-            # Если расшифровка не удалась, используем оригинальное имя из метаданных или зашифрованное
-            if decrypted_name:
-                ext = obj.object_name.rsplit('.', 1)[1] if '.' in obj.object_name else ''
-                original_filename = f"{decrypted_name}.{ext}" if ext else decrypted_name
-            else:
-                # Для старых файлов или если расшифровка не удалась
-                original_filename = stat.metadata.get('X-Amz-Meta-Original-Filename', obj.object_name)
+            # Используем оригинальное имя файла из метаданных или имя объекта
+            original_filename = stat.metadata.get('X-Amz-Meta-Original-Filename', obj.object_name)
             
             # Извлекаем метаданные из имени файла
             file_meta = get_file_metadata(original_filename)
@@ -245,14 +203,13 @@ def upload_track():
             if not allowed_file(file.filename):
                 return jsonify({'error': f'File type not allowed: {file.filename}'}), 400
             
-            # Получаем оригинальное имя файла и создаем зашифрованное имя
+            # Получаем оригинальное имя файла и используем его как имя для хранения
             original_filename = file.filename
             ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'mp3'
             
-            # Шифруем имя файла (без расширения) и добавляем расширение
+            # Используем безопасное имя файла (без расширения)
             name_without_ext = original_filename.rsplit('.', 1)[0]
-            encrypted_name = encrypt_filename(name_without_ext)
-            safe_filename = f"{encrypted_name}.{ext}"
+            safe_filename = f"{name_without_ext}.{ext}"
             
             # Читаем файл в память
             file_data = file.read()
