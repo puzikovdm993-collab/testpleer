@@ -1,5 +1,13 @@
-127.0.0.1 - - [07/Mar/2026 15:53:00] "GET /script.js HTTP/1.1" 200 -
-127.0.0.1 - - [07/Mar/2026 15:53:03] "GET /script.js HTTP/1.1" 200 -
-127.0.0.1 - - [07/Mar/2026 15:53:05] "GET /script.js HTTP/1.1" 200 -
-127.0.0.1 - - [07/Mar/2026 15:53:07] "GET /script.js HTTP/1.1" 200 -
-127.0.0.1 - - [07/Mar/2026 15:53:10] "GET /script.js HTTP/1.1" 200 -
+Ошибка при создании бакета: HTTPConnectionPool(host='localhost', port=9000): Max retries exceeded with url: /music?location= (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f91866d59a0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+✓ Бакет 'music' готов к работе
+ * Serving Flask app 'app'
+ * Debug mode: on
+Address already in use
+Port 5000 is in use by another program. Either identify and stop that program, or start the server with a different port.
+s (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://21.0.5.242:5000
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 921-464-151
