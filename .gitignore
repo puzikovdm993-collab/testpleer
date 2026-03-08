@@ -1,3 +1,41 @@
-(script.js is a source file, so no additional ignores are needed beyond what might already exist for general JavaScript project artifacts, but since only a JS source file was modified and no build artifacts/directories are present in the changes, no new rules are necessary)
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-Nothing to output.
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Testing
+.coverage
+htmlcov/
+.coverage.*
+.pytest_cache/
+.mypy_cache/
+
+# System
+.DS_Store
+Thumbs.db
+```

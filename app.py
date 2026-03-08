@@ -138,7 +138,7 @@ def get_tracks():
                 'size': stat.size,
                 'contentType': stat.content_type,
                 'lastModified': stat.last_modified.isoformat() if stat.last_modified else None,
-                'url': f'/api/tracks/{obj.object_name}'
+                'url': f'/api/tracks/{base64.urlsafe_b64encode(obj.object_name.encode("utf-8")).decode("ascii")}'
             }
             tracks.append(track)
         
@@ -156,19 +156,30 @@ def get_track(filename):
         ensure_bucket_exists()
         client = get_minio_client()
         
+        # Декодируем имя файла из Base64
+        try:
+            # Добавляем паддинг, если нужно
+            padding = '=' * (-len(filename) % 4)
+            decoded_filename = base64.urlsafe_b64decode(filename + padding).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Error decoding filename {filename}: {e}")
+            return jsonify({'error': 'Invalid filename encoding'}), 400
+        
+        logger.info(f"Streaming track: {decoded_filename}")
+        
         # Проверяем существование объекта
         try:
-            stat = client.stat_object(MINIO_BUCKET, filename)
+            stat = client.stat_object(MINIO_BUCKET, decoded_filename)
         except S3Error:
             return jsonify({'error': 'Track not found'}), 404
         
         # Получаем объект
-        response = client.get_object(MINIO_BUCKET, filename)
+        response = client.get_object(MINIO_BUCKET, decoded_filename)
         
         # Определяем content-type
         content_type = stat.content_type or 'audio/mpeg'
         
-        # Потоковая передача данных
+        # Потоковая передача данных с поддержкой range requests
         def generate():
             try:
                 for chunk in response.stream(32768):
@@ -181,8 +192,10 @@ def get_track(filename):
             generate(),
             mimetype=content_type,
             headers={
-                'Content-Disposition': f'inline; filename="{os.path.basename(filename)}"',
-                'Cache-Control': 'public, max-age=31536000'
+                'Content-Disposition': f'inline; filename="{os.path.basename(decoded_filename)}"',
+                'Cache-Control': 'public, max-age=31536000',
+                'Accept-Ranges': 'bytes',
+                'Content-Length': str(stat.size)
             }
         )
     
