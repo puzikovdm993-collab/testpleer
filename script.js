@@ -871,8 +871,7 @@ function updateProgress() {
 
 function updateDuration() {
     // Проверка на валидность duration
-    if (!audioPlayer.duration || !isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) {
-        console.warn('Invalid duration received');
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration) || audioPlayer.duration <= 0 || isNaN(audioPlayer.duration)) {
         return;
     }
     
