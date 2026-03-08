@@ -14,6 +14,14 @@ from minio import Minio
 from minio.error import S3Error
 from werkzeug.utils import secure_filename
 from io import BytesIO
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Кэш для загруженных треков: {filename: data}
+track_cache = {}
 
 app = Flask(__name__)
 CORS(app)
@@ -104,24 +112,30 @@ def get_tracks():
             # Используем оригинальное имя файла из метаданных или имя объекта
             original_filename = stat.metadata.get('X-Amz-Meta-Original-Filename', obj.object_name)
             
+            # Декодируем base64 если нужно
+            if original_filename.startswith('b64:'):
+                try:
+                    original_filename = base64.b64decode(original_filename[4:]).decode('utf-8')
+                except:
+                    pass
+            
             # Извлекаем метаданные из имени файла
             file_meta = get_file_metadata(original_filename)
             
-            # Получаем метаданные из MinIO и декодируем из UTF-8 (были закодированы как latin-1)
-            title = stat.metadata.get('X-Amz-Meta-Title')
-            artist = stat.metadata.get('X-Amz-Meta-Artist')
+            # Получаем метаданные из MinIO и декодируем из base64 если нужно
+            def decode_metadata_value(value):
+                """Декодирует base64 строку если она была закодирована"""
+                if not value:
+                    return value
+                if value.startswith('b64:'):
+                    try:
+                        return base64.b64decode(value[4:]).decode('utf-8')
+                    except:
+                        return value
+                return value
             
-            # Декодируем метаданные: они хранятся как latin-1, но содержат UTF-8 байты
-            if title:
-                try:
-                    title = title.encode('latin-1').decode('utf-8')
-                except (UnicodeDecodeError, AttributeError):
-                    pass
-            if artist:
-                try:
-                    artist = artist.encode('latin-1').decode('utf-8')
-                except (UnicodeDecodeError, AttributeError):
-                    pass
+            title = decode_metadata_value(stat.metadata.get('X-Amz-Meta-Title'))
+            artist = decode_metadata_value(stat.metadata.get('X-Amz-Meta-Artist'))
             
             track = {
                 'id': hashlib.md5(obj.object_name.encode()).hexdigest()[:12],
@@ -132,7 +146,7 @@ def get_tracks():
                 'size': stat.size,
                 'contentType': stat.content_type,
                 'lastModified': stat.last_modified.isoformat() if stat.last_modified else None,
-                'url': f'/api/tracks/{obj.object_name}'
+                'url': f'/api/tracks/{base64.urlsafe_b64encode(obj.object_name.encode("utf-8")).decode("ascii")}'
             }
             tracks.append(track)
         
@@ -145,44 +159,93 @@ def get_tracks():
 
 @app.route('/api/tracks/<path:filename>', methods=['GET'])
 def get_track(filename):
-    """Скачать трек из MinIO (потоковая передача)."""
+    """Скачать трек из кэша или MinIO (потоковая передача)."""
     try:
         ensure_bucket_exists()
         client = get_minio_client()
         
+        # Декодируем имя файла из Base64
+        try:
+            # Добавляем паддинг, если нужно
+            padding = '=' * (-len(filename) % 4)
+            decoded_filename = base64.urlsafe_b64decode(filename + padding).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Error decoding filename {filename}: {e}")
+            return jsonify({'error': 'Invalid filename encoding'}), 400
+        
+        logger.info(f"Streaming track: {decoded_filename}")
+        
+        # Проверяем кэш сначала
+        if decoded_filename in track_cache:
+            logger.info(f"Cache hit for: {decoded_filename}")
+            file_data = track_cache[decoded_filename]
+            file_size = len(file_data)
+            
+            # Определяем content-type из расширения
+            ext = decoded_filename.rsplit('.', 1)[1].lower() if '.' in decoded_filename else 'mp3'
+            content_types = {
+                'mp3': 'audio/mpeg',
+                'wav': 'audio/wav',
+                'ogg': 'audio/ogg',
+                'flac': 'audio/flac',
+                'aac': 'audio/aac',
+                'm4a': 'audio/mp4',
+                'wma': 'audio/x-ms-wma',
+                'opus': 'audio/opus'
+            }
+            content_type = content_types.get(ext, 'audio/mpeg')
+            
+            return Response(
+                file_data,
+                mimetype=content_type,
+                headers={
+                    'Content-Disposition': f'inline; filename="{os.path.basename(decoded_filename)}"',
+                    'Cache-Control': 'public, max-age=31536000',
+                    'Accept-Ranges': 'bytes',
+                    'Content-Length': str(file_size)
+                }
+            )
+        
+        # Если нет в кэше, загружаем из MinIO и сохраняем в кэш
+        logger.info(f"Cache miss, loading from MinIO: {decoded_filename}")
+        
         # Проверяем существование объекта
         try:
-            stat = client.stat_object(MINIO_BUCKET, filename)
+            stat = client.stat_object(MINIO_BUCKET, decoded_filename)
         except S3Error:
             return jsonify({'error': 'Track not found'}), 404
         
-        # Получаем объект
-        response = client.get_object(MINIO_BUCKET, filename)
+        # Получаем объект целиком в память
+        response = client.get_object(MINIO_BUCKET, decoded_filename)
+        file_data = response.read()
+        response.close()
+        response.release_conn()
+        
+        # Сохраняем в кэш
+        track_cache[decoded_filename] = file_data
+        logger.info(f"Cached track: {decoded_filename} ({len(file_data)} bytes)")
         
         # Определяем content-type
         content_type = stat.content_type or 'audio/mpeg'
-        
-        # Потоковая передача данных
-        def generate():
-            try:
-                for chunk in response.stream(32768):
-                    yield chunk
-            finally:
-                response.close()
-                response.release_conn()
+        file_size = len(file_data)
         
         return Response(
-            generate(),
+            file_data,
             mimetype=content_type,
             headers={
-                'Content-Disposition': f'inline; filename="{os.path.basename(filename)}"',
-                'Cache-Control': 'public, max-age=31536000'
+                'Content-Disposition': f'inline; filename="{os.path.basename(decoded_filename)}"',
+                'Cache-Control': 'public, max-age=31536000',
+                'Accept-Ranges': 'bytes',
+                'Content-Length': str(file_size)
             }
         )
     
     except S3Error as e:
         return jsonify({'error': f'MinIO error: {str(e)}'}), 500
     except Exception as e:
+        logger.error(f"Error streaming track: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/tracks', methods=['POST'])
@@ -201,11 +264,26 @@ def upload_track():
             if file.filename == '':
                 continue
             
-            if not allowed_file(file.filename):
-                return jsonify({'error': f'File type not allowed: {file.filename}'}), 400
-            
-            # Получаем оригинальное имя файла
+            # Получаем оригинальное имя файла и декодируем если нужно
             original_filename = file.filename
+            # Обработка случаев когда имя файла закодировано в разных кодировках
+            try:
+                # Пытаемся декодировать если имя пришло в неправильной кодировке
+                if isinstance(original_filename, bytes):
+                    original_filename = original_filename.decode('utf-8')
+                elif isinstance(original_filename, str):
+                    # Проверяем не является ли строка результатом неправильного декодирования
+                    try:
+                        # Если строка содержит mojibake (кракозябры), пытаемся исправить
+                        original_filename = original_filename.encode('latin-1').decode('utf-8')
+                    except (UnicodeDecodeError, UnicodeEncodeError):
+                        pass
+            except (UnicodeDecodeError, AttributeError):
+                pass
+            
+            if not allowed_file(original_filename):
+                return jsonify({'error': f'File type not allowed: {original_filename}'}), 400
+            
             ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'mp3'
             
             # Кодируем имя файла в Base64 для безопасного использования в качестве ключа объекта
@@ -221,13 +299,22 @@ def upload_track():
             # Извлекаем метаданные из оригинального имени
             file_meta = get_file_metadata(original_filename)
             
-            # Метаданные для MinIO - кодируем в UTF-8 явно для избежания ошибок с не-ASCII символами
-            # MinIO/S3 требует чтобы значения метаданных были ASCII, поэтому кодируем Unicode в UTF-8 байты
+            # Метаданные для MinIO должны быть только ASCII
+            # Кодируем кириллические значения в base64 чтобы избежать SignatureDoesNotMatch
+            def encode_metadata_value(value):
+                """Кодирует строку в base64 если она содержит не-ASCII символы"""
+                try:
+                    value.encode('ascii')
+                    return value  # Строка уже ASCII
+                except UnicodeEncodeError:
+                    # Кодируем не-ASCII строку в base64
+                    return f"b64:{base64.b64encode(value.encode('utf-8')).decode('ascii')}"
+            
             metadata = {
-                'X-Amz-Meta-Title': file_meta['title'].encode('utf-8').decode('latin-1'),
-                'X-Amz-Meta-Artist': file_meta['artist'].encode('utf-8').decode('latin-1'),
+                'X-Amz-Meta-Title': encode_metadata_value(file_meta['title']),
+                'X-Amz-Meta-Artist': encode_metadata_value(file_meta['artist']),
                 'X-Amz-Meta-Uploaded-At': datetime.now(timezone.utc).isoformat(),
-                'X-Amz-Meta-Original-Filename': original_filename.encode('utf-8').decode('latin-1')
+                'X-Amz-Meta-Original-Filename': encode_metadata_value(original_filename)
             }
             
             # Загружаем в MinIO
@@ -260,6 +347,9 @@ def upload_track():
     except S3Error as e:
         return jsonify({'error': f'MinIO error: {str(e)}'}), 500
     except Exception as e:
+        print(f"Upload error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/tracks/<path:filename>', methods=['DELETE'])

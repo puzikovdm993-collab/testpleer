@@ -113,6 +113,12 @@ function setupEventListeners() {
     // Audio events
     audioPlayer.addEventListener('timeupdate', updateProgress);
     audioPlayer.addEventListener('loadedmetadata', updateDuration);
+    audioPlayer.addEventListener('durationchange', updateDuration);
+    audioPlayer.addEventListener('canplay', () => {
+        if (audioPlayer.duration && isFinite(audioPlayer.duration)) {
+            updateDuration();
+        }
+    });
     audioPlayer.addEventListener('ended', handleTrackEnd);
     audioPlayer.addEventListener('error', handleAudioError);
 
@@ -634,6 +640,9 @@ function loadTrack(index) {
     
     // Сбрасываем длительность в null чтобы предотвратить некорректные значения
     audioPlayer.removeAttribute('duration');
+    
+    // Принудительно загружаем метаданные для аудио
+    audioPlayer.load();
     
     updatePlaylistDisplay();
 }
