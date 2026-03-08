@@ -65,6 +65,9 @@
                         📁 Добавить файлы
                         <input type="file" id="fileInput" multiple accept="audio/*" hidden>
                     </label>
+                    <button class="action-btn" id="loadFromMinioBtn" title="Загрузить из MinIO">
+                        ⬇️ Из облака
+                    </button>
                     <button class="action-btn" id="exportBtn" title="Экспортировать плейлист">
                         💾 Экспорт
                     </button>
@@ -75,6 +78,29 @@
                     <button class="action-btn clear-btn" id="clearBtn" title="Очистить плейлист">
                         🗑️ Очистить
                     </button>
+                </div>
+            </div>
+
+            <!-- MinIO Modal -->
+            <div class="modal-overlay" id="minioModalOverlay">
+                <div class="modal">
+                    <div class="modal-header">
+                        <h3 class="modal-title">☁️ MinIO Хранилище</h3>
+                        <button class="close-modal" id="closeMinioModal">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="modal-actions">
+                            <label class="action-btn">
+                                📤 Загрузить файлы
+                                <input type="file" id="minioFileInput" multiple accept="audio/*" hidden>
+                            </label>
+                            <button class="action-btn secondary" id="loadFromMinioCard">
+                                📥 Скачать из облака
+                            </button>
+                        </div>
+                        <div class="status-message" id="minioStatus"></div>
+                        <div class="minio-file-list" id="minioFileList"></div>
+                    </div>
                 </div>
             </div>
 

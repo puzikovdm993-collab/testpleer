@@ -312,6 +312,235 @@ body {
     box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
 }
 
+/* MinIO Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-header h3 {
+    font-size: 1.2rem;
+    background: linear-gradient(90deg, #00d9ff, #00ff88);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 5px;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #fff;
+    transform: scale(1.2);
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.minio-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.minio-action-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 25px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.minio-action-card:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #00d9ff;
+    transform: translateY(-3px);
+    box-shadow: 0 5px 20px rgba(0, 217, 255, 0.3);
+}
+
+.minio-icon {
+    font-size: 2.5rem;
+    margin-bottom: 5px;
+}
+
+.minio-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.minio-desc {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.minio-status {
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    font-size: 0.9rem;
+    display: none;
+}
+
+.minio-status.success {
+    display: block;
+    background: rgba(0, 255, 136, 0.1);
+    border: 1px solid #00ff88;
+    color: #00ff88;
+}
+
+.minio-status.error {
+    display: block;
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid #ff4444;
+    color: #ff4444;
+}
+
+.minio-status.info {
+    display: block;
+    background: rgba(0, 217, 255, 0.1);
+    border: 1px solid #00d9ff;
+    color: #00d9ff;
+}
+
+.minio-file-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.minio-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.minio-file-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.minio-file-name {
+    font-size: 0.9rem;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.minio-file-size {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 3px;
+}
+
+.minio-file-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: 10px;
+}
+
+.minio-file-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #fff;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.minio-file-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.minio-file-btn.delete {
+    background: rgba(245, 87, 108, 0.2);
+    color: #f5576c;
+}
+
+.minio-file-btn.delete:hover {
+    background: rgba(245, 87, 108, 0.4);
+}
+
+.minio-file-btn.add {
+    background: rgba(0, 255, 136, 0.2);
+    color: #00ff88;
+}
+
+.minio-file-btn.add:hover {
+    background: rgba(0, 255, 136, 0.4);
+}
+
+/* Update existing MinIO buttons to be hidden or styled differently */
+#uploadToMinioBtn {
+    display: none;
+}
+
+/* MinIO buttons */
+#loadFromMinioBtn,
+#uploadToMinioBtn {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+}
+
+#loadFromMinioBtn:hover,
+#uploadToMinioBtn:hover {
+    box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
+}
+
 /* Playlist Mode Controls - Compact */
 .playlist-controls {
     display: flex;

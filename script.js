@@ -38,6 +38,15 @@ const importInput = document.getElementById('importInput');
 const clearBtn = document.getElementById('clearBtn');
 const shuffleModeBtn = document.getElementById('shuffleModeBtn');
 const repeatModeBtn = document.getElementById('repeatModeBtn');
+const loadFromMinioBtn = document.getElementById('loadFromMinioBtn');
+
+// MinIO Modal elements
+const minioModalOverlay = document.getElementById('minioModalOverlay');
+const closeMinioModal = document.getElementById('closeMinioModal');
+const minioFileInput = document.getElementById('minioFileInput');
+const loadFromMinioCard = document.getElementById('loadFromMinioCard');
+const minioStatus = document.getElementById('minioStatus');
+const minioFileList = document.getElementById('minioFileList');
 
 // Volume mute state
 let previousVolume = DEFAULT_VOLUME / 100;
@@ -45,7 +54,6 @@ let previousVolume = DEFAULT_VOLUME / 100;
 // Initialize
 function init() {
     setupEventListeners();
-    loadPlaylistFromStorage();
     updateVolumeDisplay();
     updatePlaylistDisplay();
 }
@@ -113,6 +121,17 @@ function setupEventListeners() {
     exportBtn.addEventListener('click', exportPlaylist);
     importInput.addEventListener('change', importPlaylist);
     clearBtn.addEventListener('click', clearPlaylist);
+    loadFromMinioBtn.addEventListener('click', openMinioModal);
+
+    // MinIO Modal events
+    closeMinioModal.addEventListener('click', closeMinioModalHandler);
+    minioModalOverlay.addEventListener('click', (e) => {
+        if (e.target === minioModalOverlay) {
+            closeMinioModalHandler();
+        }
+    });
+    minioFileInput.addEventListener('change', handleMinioFileUpload);
+    loadFromMinioCard.addEventListener('click', loadFromMinio);
 
     // Playlist mode buttons
     shuffleModeBtn.addEventListener('click', toggleShuffle);
@@ -120,6 +139,11 @@ function setupEventListeners() {
 
     // Keyboard shortcuts
     document.addEventListener('keydown', handleKeyboard);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && minioModalOverlay.classList.contains('active')) {
+            closeMinioModalHandler();
+        }
+    });
 }
 
 // File Upload Handler
@@ -172,7 +196,6 @@ function handleFileUpload(e) {
         }
     });
 
-    savePlaylistToStorage();
     updatePlaylistDisplay();
     
     // Play first track if nothing is playing
@@ -187,6 +210,278 @@ function handleFileUpload(e) {
 
     // Clear input
     fileInput.value = '';
+}
+
+// Open MinIO Modal
+function openMinioModal() {
+    minioModalOverlay.classList.add('active');
+    showMinioStatus('Выберите действие', 'info');
+    loadMinioFileList();
+}
+
+// Close MinIO Modal
+function closeMinioModalHandler() {
+    minioModalOverlay.classList.remove('active');
+    minioFileInput.value = '';
+    hideMinioStatus();
+}
+
+// Show MinIO Status
+function showMinioStatus(message, type = 'info') {
+    minioStatus.textContent = message;
+    minioStatus.className = `status-message ${type}`;
+}
+
+// Hide MinIO Status
+function hideMinioStatus() {
+    minioStatus.className = 'status-message';
+    minioStatus.textContent = '';
+}
+
+// Handle MinIO File Upload
+async function handleMinioFileUpload(e) {
+    const files = Array.from(e.target.files);
+    
+    if (files.length === 0) {
+        showMinioStatus('Файлы не выбраны', 'error');
+        return;
+    }
+    
+    const formData = new FormData();
+    files.forEach(file => {
+        if (file.type.startsWith('audio/')) {
+            formData.append('file', file);
+        }
+    });
+    
+    if (formData.getAll('file').length === 0) {
+        showMinioStatus('Нет аудиофайлов для загрузки', 'error');
+        return;
+    }
+    
+    try {
+        showMinioStatus('⏳ Загрузка файлов...', 'info');
+        
+        const response = await fetch('/api/tracks', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка загрузки');
+        }
+        
+        const result = await response.json();
+        showMinioStatus(`✓ Загружено в MinIO: ${result.message}`, 'success');
+        
+        // Очищаем input после успешной загрузки
+        minioFileInput.value = '';
+        
+        // Обновляем список файлов
+        setTimeout(() => {
+            loadMinioFileList();
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Upload error:', error);
+        showMinioStatus(`Ошибка загрузки в MinIO: ${error.message}`, 'error');
+    }
+}
+
+// Load MinIO File List
+async function loadMinioFileList() {
+    try {
+        const response = await fetch('/api/tracks');
+        
+        if (!response.ok) {
+            throw new Error('Ошибка получения списка треков');
+        }
+        
+        const data = await response.json();
+        
+        if (data.tracks.length === 0) {
+            minioFileList.innerHTML = '<div class="empty-playlist" style="padding: 20px; text-align: center; color: rgba(255,255,255,0.5);">В MinIO нет треков</div>';
+            return;
+        }
+        
+        minioFileList.innerHTML = '';
+        
+        data.tracks.forEach(track => {
+            const div = document.createElement('div');
+            div.className = 'minio-file-item';
+            
+            const sizeStr = formatFileSize(track.size);
+            
+            div.innerHTML = `
+                <div class="minio-file-info">
+                    <div class="minio-file-name">${escapeHtml(track.fileName)}</div>
+                    <div class="minio-file-size">${sizeStr}</div>
+                </div>
+                <div class="minio-file-actions">
+                    <button class="minio-file-btn add" data-filename="${escapeHtml(track.fileName)}" title="Добавить в плейлист">➕</button>
+                    <button class="minio-file-btn delete" data-filename="${escapeHtml(track.fileName)}" title="Удалить">🗑️</button>
+                </div>
+            `;
+            
+            minioFileList.appendChild(div);
+        });
+        
+        // Add event listeners to buttons
+        minioFileList.querySelectorAll('.minio-file-btn.add').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const filename = e.target.dataset.filename;
+                addTrackFromMinio(filename);
+            });
+        });
+        
+        minioFileList.querySelectorAll('.minio-file-btn.delete').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const filename = e.target.dataset.filename;
+                deleteTrackFromMinioByName(filename);
+            });
+        });
+        
+    } catch (error) {
+        console.error('Load file list error:', error);
+        showMinioStatus(`Ошибка получения списка: ${error.message}`, 'error');
+    }
+}
+
+// Add track from MinIO to playlist
+function addTrackFromMinio(filename) {
+    const track = state.playlist.find(t => t.fileName === filename);
+    if (track) {
+        showMinioStatus(`Трек уже в плейлисте`, 'info');
+        return;
+    }
+    
+    // Find track from API
+    fetch('/api/tracks')
+        .then(response => response.json())
+        .then(data => {
+            const trackData = data.tracks.find(t => t.fileName === filename);
+            if (trackData) {
+                const playlistTrack = {
+                    id: trackData.id,
+                    title: trackData.title,
+                    artist: trackData.artist,
+                    src: trackData.url,
+                    fileName: trackData.fileName,
+                    duration: 0,
+                    size: trackData.size,
+                    lastModified: trackData.lastModified
+                };
+                state.playlist.push(playlistTrack);
+                updatePlaylistDisplay();
+                showMinioStatus(`✓ Трек добавлен в плейлист`, 'success');
+            }
+        })
+        .catch(error => {
+            console.error('Add track error:', error);
+            showMinioStatus(`Ошибка добавления трека: ${error.message}`, 'error');
+        });
+}
+
+// Delete track from MinIO by name
+async function deleteTrackFromMinioByName(filename) {
+    if (!confirm(`Удалить трек "${filename}" из MinIO?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/tracks/${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка удаления');
+        }
+        
+        showMinioStatus(`✓ Удалено из MinIO: ${filename}`, 'success');
+        
+        // Удаляем из плейлиста если есть
+        const index = state.playlist.findIndex(t => t.fileName === filename);
+        if (index !== -1) {
+            state.playlist.splice(index, 1);
+            updatePlaylistDisplay();
+        }
+        
+        // Обновляем список файлов
+        setTimeout(() => {
+            loadMinioFileList();
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Delete error:', error);
+        showMinioStatus(`Ошибка удаления из MinIO: ${error.message}`, 'error');
+    }
+}
+
+// Format file size
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// Upload to MinIO (deprecated - use handleMinioFileUpload instead)
+async function uploadToMinio() {
+    console.warn('uploadToMinio is deprecated, use handleMinioFileUpload');
+}
+
+// Load from MinIO
+async function loadFromMinio() {
+    try {
+        loadFromMinioBtn.disabled = true;
+        loadFromMinioBtn.textContent = '⏳ Загрузка...';
+        
+        const response = await fetch('/api/tracks');
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка получения списка треков');
+        }
+        
+        const data = await response.json();
+        
+        if (data.tracks.length === 0) {
+            showError('В MinIO нет треков');
+            return;
+        }
+        
+        // Добавляем треки в плейлист
+        data.tracks.forEach(track => {
+            // Проверяем, есть ли уже такой трек в плейлисте
+            const exists = state.playlist.some(t => t.fileName === track.fileName);
+            if (!exists) {
+                const playlistTrack = {
+                    id: track.id,
+                    title: track.title,
+                    artist: track.artist,
+                    src: track.url,
+                    fileName: track.fileName,
+                    duration: 0,
+                    size: track.size,
+                    lastModified: track.lastModified
+                };
+                state.playlist.push(playlistTrack);
+            }
+        });
+        
+        updatePlaylistDisplay();
+        showError(`✓ Загружено из MinIO: ${data.count} треков`);
+        
+    } catch (error) {
+        console.error('Load error:', error);
+        showError(`Ошибка загрузки из MinIO: ${error.message}`);
+    } finally {
+        loadFromMinioBtn.disabled = false;
+        loadFromMinioBtn.textContent = '⬇️ Из облака';
+    }
 }
 
 // Playlist Display
@@ -221,7 +516,9 @@ function updatePlaylistDisplay() {
         const removeBtn = li.querySelector('.playlist-item-remove');
         removeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            removeTrack(index);
+            // Проверяем, является ли трек из MinIO (имеет url, начинающийся с /api/)
+            const isFromMinio = track.src && track.src.startsWith('/api/');
+            removeTrack(index, isFromMinio);
         });
 
         playlistEl.appendChild(li);
@@ -235,7 +532,7 @@ function updatePlaylistDisplay() {
 }
 
 // Remove Track
-function removeTrack(index) {
+function removeTrack(index, fromMinio = false) {
     const track = state.playlist[index];
     
     // Clean up blob URL to prevent memory leaks
@@ -245,6 +542,11 @@ function removeTrack(index) {
         } catch (e) {
             console.warn('Failed to revoke blob URL:', e);
         }
+    }
+    
+    // Если треки из MinIO, удаляем и с сервера
+    if (fromMinio && track && track.fileName) {
+        deleteTrackFromMinio(track.fileName);
     }
     
     state.playlist.splice(index, 1);
@@ -258,7 +560,6 @@ function removeTrack(index) {
         state.shuffledIndices = state.shuffledIndices.map(i => i > index ? i - 1 : i);
     }
     
-    savePlaylistToStorage();
     updatePlaylistDisplay();
     
     if (state.playlist.length === 0) {
@@ -269,6 +570,25 @@ function removeTrack(index) {
         // Если удалили трек перед текущим, нужно обновить индекс
         state.currentTrackIndex--;
         loadTrack(state.currentTrackIndex);
+    }
+}
+
+// Delete track from MinIO
+async function deleteTrackFromMinio(filename) {
+    try {
+        const response = await fetch(`/api/tracks/${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка удаления');
+        }
+        
+        console.log(`✓ Удалено из MinIO: ${filename}`);
+    } catch (error) {
+        console.error('Delete error:', error);
+        showError(`Ошибка удаления из MinIO: ${error.message}`);
     }
 }
 
@@ -731,7 +1051,6 @@ function importPlaylist(e) {
             }));
 
             state.playlist = [...state.playlist, ...importedTracks];
-            savePlaylistToStorage();
             updatePlaylistDisplay();
             
             alert(`Импортировано ${importedTracks.length} треков.\n\nПримечание: Вам нужно будет повторно добавить аудиофайлы, так как сохраняются только метаданные.`);
@@ -764,7 +1083,6 @@ function clearPlaylist() {
         state.playlist = [];
         state.currentTrackIndex = -1;
         state.shuffledIndices = [];
-        savePlaylistToStorage();
         updatePlaylistDisplay();
         resetPlayer();
     }
@@ -886,7 +1204,6 @@ async function loadTracksFromCloud() {
                 });
             });
             
-            savePlaylistToStorage();
             updatePlaylistDisplay();
             showError(`Загружено ${data.tracks.length} треков из облака`);
         }
@@ -1007,7 +1324,6 @@ async function handleFileUploadWithCloud(e) {
     if (isCloudAvailable && uploadedCount > 0) {
         await loadTracksFromCloud();
     } else {
-        savePlaylistToStorage();
         updatePlaylistDisplay();
     }
     
