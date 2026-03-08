@@ -103,9 +103,13 @@ def get_tracks():
             # Извлекаем метаданные из имени файла или используем stored metadata
             file_meta = get_file_metadata(obj.object_name)
             
+            # Получаем оригинальное имя файла из метаданных
+            original_filename = stat.metadata.get('X-Amz-Meta-Original-Filename', obj.object_name)
+            
             track = {
                 'id': hashlib.md5(obj.object_name.encode()).hexdigest()[:12],
                 'fileName': obj.object_name,
+                'originalFileName': original_filename,
                 'title': stat.metadata.get('X-Amz-Meta-Title', file_meta['title']),
                 'artist': stat.metadata.get('X-Amz-Meta-Artist', file_meta['artist']),
                 'size': stat.size,

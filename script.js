@@ -313,9 +313,12 @@ async function loadMinioFileList() {
             
             const sizeStr = formatFileSize(track.size);
             
+            // Используем оригинальное имя файла если оно есть, иначе берем fileName
+            const displayName = track.originalFileName || track.fileName;
+            
             div.innerHTML = `
                 <div class="minio-file-info">
-                    <div class="minio-file-name">${escapeHtml(track.fileName)}</div>
+                    <div class="minio-file-name">${escapeHtml(displayName)}</div>
                     <div class="minio-file-size">${sizeStr}</div>
                 </div>
                 <div class="minio-file-actions">
@@ -497,10 +500,17 @@ function updatePlaylistDisplay() {
     state.playlist.forEach((track, index) => {
         const li = document.createElement('li');
         li.className = `playlist-item ${index === state.currentTrackIndex ? 'active' : ''}`;
+        
+        // Используем оригинальное имя файла если title не задан или равен имени файла
+        let displayTitle = track.title;
+        if (!displayTitle || displayTitle === track.fileName) {
+            displayTitle = track.originalFileName || track.fileName;
+        }
+        
         li.innerHTML = `
             <span class="playlist-item-number">${index + 1}</span>
             <div class="playlist-item-info">
-                <div class="playlist-item-title">${escapeHtml(track.title)}</div>
+                <div class="playlist-item-title">${escapeHtml(displayTitle)}</div>
                 <div class="playlist-item-duration">${formatTime(track.duration)}</div>
             </div>
             <button class="playlist-item-remove" data-index="${index}" title="Удалить">×</button>
@@ -607,7 +617,14 @@ function loadTrack(index) {
     }
     
     audioPlayer.src = track.src;
-    trackTitle.textContent = track.title;
+    
+    // Используем оригинальное имя файла если title не задан или равен fileName
+    let displayTitle = track.title;
+    if (!displayTitle || displayTitle === track.fileName) {
+        displayTitle = track.originalFileName || track.fileName;
+    }
+    
+    trackTitle.textContent = displayTitle;
     trackArtist.textContent = track.artist;
     
     // Сбрасываем прогресс бар при загрузке нового трека
