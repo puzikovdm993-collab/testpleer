@@ -47,7 +47,6 @@ let previousVolume = DEFAULT_VOLUME / 100;
 // Initialize
 function init() {
     setupEventListeners();
-    loadPlaylistFromStorage();
     updateVolumeDisplay();
     updatePlaylistDisplay();
 }
@@ -176,7 +175,6 @@ function handleFileUpload(e) {
         }
     });
 
-    savePlaylistToStorage();
     updatePlaylistDisplay();
     
     // Play first track if nothing is playing
@@ -285,7 +283,6 @@ async function loadFromMinio() {
             }
         });
         
-        savePlaylistToStorage();
         updatePlaylistDisplay();
         showError(`✓ Загружено из MinIO: ${data.count} треков`);
         
@@ -374,7 +371,6 @@ function removeTrack(index, fromMinio = false) {
         state.shuffledIndices = state.shuffledIndices.map(i => i > index ? i - 1 : i);
     }
     
-    savePlaylistToStorage();
     updatePlaylistDisplay();
     
     if (state.playlist.length === 0) {
@@ -866,7 +862,6 @@ function importPlaylist(e) {
             }));
 
             state.playlist = [...state.playlist, ...importedTracks];
-            savePlaylistToStorage();
             updatePlaylistDisplay();
             
             alert(`Импортировано ${importedTracks.length} треков.\n\nПримечание: Вам нужно будет повторно добавить аудиофайлы, так как сохраняются только метаданные.`);
@@ -899,7 +894,6 @@ function clearPlaylist() {
         state.playlist = [];
         state.currentTrackIndex = -1;
         state.shuffledIndices = [];
-        savePlaylistToStorage();
         updatePlaylistDisplay();
         resetPlayer();
     }
@@ -1021,7 +1015,6 @@ async function loadTracksFromCloud() {
                 });
             });
             
-            savePlaylistToStorage();
             updatePlaylistDisplay();
             showError(`Загружено ${data.tracks.length} треков из облака`);
         }
@@ -1142,7 +1135,6 @@ async function handleFileUploadWithCloud(e) {
     if (isCloudAvailable && uploadedCount > 0) {
         await loadTracksFromCloud();
     } else {
-        savePlaylistToStorage();
         updatePlaylistDisplay();
     }
     
