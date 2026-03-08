@@ -312,6 +312,17 @@ body {
     box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
 }
 
+/* MinIO buttons */
+#uploadToMinioBtn,
+#loadFromMinioBtn {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+}
+
+#uploadToMinioBtn:hover,
+#loadFromMinioBtn:hover {
+    box-shadow: 0 5px 15px rgba(17, 153, 142, 0.4);
+}
+
 /* Playlist Mode Controls - Compact */
 .playlist-controls {
     display: flex;

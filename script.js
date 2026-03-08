@@ -38,6 +38,8 @@ const importInput = document.getElementById('importInput');
 const clearBtn = document.getElementById('clearBtn');
 const shuffleModeBtn = document.getElementById('shuffleModeBtn');
 const repeatModeBtn = document.getElementById('repeatModeBtn');
+const uploadToMinioBtn = document.getElementById('uploadToMinioBtn');
+const loadFromMinioBtn = document.getElementById('loadFromMinioBtn');
 
 // Volume mute state
 let previousVolume = DEFAULT_VOLUME / 100;
@@ -113,6 +115,8 @@ function setupEventListeners() {
     exportBtn.addEventListener('click', exportPlaylist);
     importInput.addEventListener('change', importPlaylist);
     clearBtn.addEventListener('click', clearPlaylist);
+    uploadToMinioBtn.addEventListener('click', uploadToMinio);
+    loadFromMinioBtn.addEventListener('click', loadFromMinio);
 
     // Playlist mode buttons
     shuffleModeBtn.addEventListener('click', toggleShuffle);
@@ -189,6 +193,111 @@ function handleFileUpload(e) {
     fileInput.value = '';
 }
 
+// Upload to MinIO
+async function uploadToMinio() {
+    const files = Array.from(fileInput.files);
+    
+    if (files.length === 0) {
+        showError('Файлы не выбраны');
+        return;
+    }
+    
+    const formData = new FormData();
+    files.forEach(file => {
+        if (file.type.startsWith('audio/')) {
+            formData.append('file', file);
+        }
+    });
+    
+    if (formData.getAll('file').length === 0) {
+        showError('Нет аудиофайлов для загрузки');
+        return;
+    }
+    
+    try {
+        uploadToMinioBtn.disabled = true;
+        uploadToMinioBtn.textContent = '⏳ Загрузка...';
+        
+        const response = await fetch('/api/tracks', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка загрузки');
+        }
+        
+        const result = await response.json();
+        showError(`✓ Загружено в MinIO: ${result.message}`);
+        
+        // Очищаем input после успешной загрузки
+        fileInput.value = '';
+        
+        // Обновляем плейлист из MinIO
+        await loadFromMinio();
+        
+    } catch (error) {
+        console.error('Upload error:', error);
+        showError(`Ошибка загрузки в MinIO: ${error.message}`);
+    } finally {
+        uploadToMinioBtn.disabled = false;
+        uploadToMinioBtn.textContent = '☁️ В облако';
+    }
+}
+
+// Load from MinIO
+async function loadFromMinio() {
+    try {
+        loadFromMinioBtn.disabled = true;
+        loadFromMinioBtn.textContent = '⏳ Загрузка...';
+        
+        const response = await fetch('/api/tracks');
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка получения списка треков');
+        }
+        
+        const data = await response.json();
+        
+        if (data.tracks.length === 0) {
+            showError('В MinIO нет треков');
+            return;
+        }
+        
+        // Добавляем треки в плейлист
+        data.tracks.forEach(track => {
+            // Проверяем, есть ли уже такой трек в плейлисте
+            const exists = state.playlist.some(t => t.fileName === track.fileName);
+            if (!exists) {
+                const playlistTrack = {
+                    id: track.id,
+                    title: track.title,
+                    artist: track.artist,
+                    src: track.url,
+                    fileName: track.fileName,
+                    duration: 0,
+                    size: track.size,
+                    lastModified: track.lastModified
+                };
+                state.playlist.push(playlistTrack);
+            }
+        });
+        
+        savePlaylistToStorage();
+        updatePlaylistDisplay();
+        showError(`✓ Загружено из MinIO: ${data.count} треков`);
+        
+    } catch (error) {
+        console.error('Load error:', error);
+        showError(`Ошибка загрузки из MinIO: ${error.message}`);
+    } finally {
+        loadFromMinioBtn.disabled = false;
+        loadFromMinioBtn.textContent = '⬇️ Из облака';
+    }
+}
+
 // Playlist Display
 function updatePlaylistDisplay() {
     trackCountEl.textContent = state.playlist.length;
@@ -221,7 +330,9 @@ function updatePlaylistDisplay() {
         const removeBtn = li.querySelector('.playlist-item-remove');
         removeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            removeTrack(index);
+            // Проверяем, является ли трек из MinIO (имеет url, начинающийся с /api/)
+            const isFromMinio = track.src && track.src.startsWith('/api/');
+            removeTrack(index, isFromMinio);
         });
 
         playlistEl.appendChild(li);
@@ -235,7 +346,7 @@ function updatePlaylistDisplay() {
 }
 
 // Remove Track
-function removeTrack(index) {
+function removeTrack(index, fromMinio = false) {
     const track = state.playlist[index];
     
     // Clean up blob URL to prevent memory leaks
@@ -245,6 +356,11 @@ function removeTrack(index) {
         } catch (e) {
             console.warn('Failed to revoke blob URL:', e);
         }
+    }
+    
+    // Если треки из MinIO, удаляем и с сервера
+    if (fromMinio && track && track.fileName) {
+        deleteTrackFromMinio(track.fileName);
     }
     
     state.playlist.splice(index, 1);
@@ -269,6 +385,25 @@ function removeTrack(index) {
         // Если удалили трек перед текущим, нужно обновить индекс
         state.currentTrackIndex--;
         loadTrack(state.currentTrackIndex);
+    }
+}
+
+// Delete track from MinIO
+async function deleteTrackFromMinio(filename) {
+    try {
+        const response = await fetch(`/api/tracks/${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Ошибка удаления');
+        }
+        
+        console.log(`✓ Удалено из MinIO: ${filename}`);
+    } catch (error) {
+        console.error('Delete error:', error);
+        showError(`Ошибка удаления из MinIO: ${error.message}`);
     }
 }
 
