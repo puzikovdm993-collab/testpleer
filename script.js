@@ -229,12 +229,12 @@ function closeMinioModalHandler() {
 // Show MinIO Status
 function showMinioStatus(message, type = 'info') {
     minioStatus.textContent = message;
-    minioStatus.className = `minio-status ${type}`;
+    minioStatus.className = `status-message ${type}`;
 }
 
 // Hide MinIO Status
 function hideMinioStatus() {
-    minioStatus.className = 'minio-status';
+    minioStatus.className = 'status-message';
     minioStatus.textContent = '';
 }
 

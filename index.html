@@ -85,24 +85,20 @@
             <div class="modal-overlay" id="minioModalOverlay">
                 <div class="modal">
                     <div class="modal-header">
-                        <h3>☁️ MinIO Хранилище</h3>
-                        <button class="modal-close" id="closeMinioModal">×</button>
+                        <h3 class="modal-title">☁️ MinIO Хранилище</h3>
+                        <button class="close-modal" id="closeMinioModal">×</button>
                     </div>
                     <div class="modal-body">
-                        <div class="minio-actions">
-                            <label class="minio-action-card">
+                        <div class="modal-actions">
+                            <label class="action-btn">
+                                📤 Загрузить файлы
                                 <input type="file" id="minioFileInput" multiple accept="audio/*" hidden>
-                                <div class="minio-icon">📤</div>
-                                <div class="minio-title">Загрузить файлы</div>
-                                <div class="minio-desc">Отправить аудиофайлы в облако</div>
                             </label>
-                            <button class="minio-action-card" id="loadFromMinioCard">
-                                <div class="minio-icon">📥</div>
-                                <div class="minio-title">Скачать из облака</div>
-                                <div class="minio-desc">Получить список треков из MinIO</div>
+                            <button class="action-btn secondary" id="loadFromMinioCard">
+                                📥 Скачать из облака
                             </button>
                         </div>
-                        <div class="minio-status" id="minioStatus"></div>
+                        <div class="status-message" id="minioStatus"></div>
                         <div class="minio-file-list" id="minioFileList"></div>
                     </div>
                 </div>
