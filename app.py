@@ -148,12 +148,28 @@ def get_tracks():
             # Извлекаем метаданные из имени файла
             file_meta = get_file_metadata(original_filename)
             
+            # Получаем метаданные из MinIO и декодируем из UTF-8 (были закодированы как latin-1)
+            title = stat.metadata.get('X-Amz-Meta-Title')
+            artist = stat.metadata.get('X-Amz-Meta-Artist')
+            
+            # Декодируем метаданные: они хранятся как latin-1, но содержат UTF-8 байты
+            if title:
+                try:
+                    title = title.encode('latin-1').decode('utf-8')
+                except (UnicodeDecodeError, AttributeError):
+                    pass
+            if artist:
+                try:
+                    artist = artist.encode('latin-1').decode('utf-8')
+                except (UnicodeDecodeError, AttributeError):
+                    pass
+            
             track = {
                 'id': hashlib.md5(obj.object_name.encode()).hexdigest()[:12],
                 'fileName': obj.object_name,
                 'originalFileName': original_filename,
-                'title': stat.metadata.get('X-Amz-Meta-Title', file_meta['title']),
-                'artist': stat.metadata.get('X-Amz-Meta-Artist', file_meta['artist']),
+                'title': title or file_meta['title'],
+                'artist': artist or file_meta['artist'],
                 'size': stat.size,
                 'contentType': stat.content_type,
                 'lastModified': stat.last_modified.isoformat() if stat.last_modified else None,
@@ -245,12 +261,13 @@ def upload_track():
             # Извлекаем метаданные из оригинального имени
             file_meta = get_file_metadata(original_filename)
             
-            # Метаданные для MinIO - кодируем в UTF-8 явно
+            # Метаданные для MinIO - кодируем в UTF-8 явно для избежания ошибок с не-ASCII символами
+            # MinIO/S3 требует чтобы значения метаданных были ASCII, поэтому кодируем Unicode в UTF-8 байты
             metadata = {
-                'X-Amz-Meta-Title': file_meta['title'],
-                'X-Amz-Meta-Artist': file_meta['artist'],
+                'X-Amz-Meta-Title': file_meta['title'].encode('utf-8').decode('latin-1'),
+                'X-Amz-Meta-Artist': file_meta['artist'].encode('utf-8').decode('latin-1'),
                 'X-Amz-Meta-Uploaded-At': datetime.utcnow().isoformat(),
-                'X-Amz-Meta-Original-Filename': original_filename.encode('utf-8').decode('utf-8')
+                'X-Amz-Meta-Original-Filename': original_filename.encode('utf-8').decode('latin-1')
             }
             
             # Загружаем в MinIO
