@@ -201,11 +201,26 @@ def upload_track():
             if file.filename == '':
                 continue
             
-            if not allowed_file(file.filename):
-                return jsonify({'error': f'File type not allowed: {file.filename}'}), 400
-            
-            # Получаем оригинальное имя файла
+            # Получаем оригинальное имя файла и декодируем если нужно
             original_filename = file.filename
+            # Обработка случаев когда имя файла закодировано в разных кодировках
+            try:
+                # Пытаемся декодировать если имя пришло в неправильной кодировке
+                if isinstance(original_filename, bytes):
+                    original_filename = original_filename.decode('utf-8')
+                elif isinstance(original_filename, str):
+                    # Проверяем не является ли строка результатом неправильного декодирования
+                    try:
+                        # Если строка содержит mojibake (кракозябры), пытаемся исправить
+                        original_filename = original_filename.encode('latin-1').decode('utf-8')
+                    except (UnicodeDecodeError, UnicodeEncodeError):
+                        pass
+            except (UnicodeDecodeError, AttributeError):
+                pass
+            
+            if not allowed_file(original_filename):
+                return jsonify({'error': f'File type not allowed: {original_filename}'}), 400
+            
             ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'mp3'
             
             # Кодируем имя файла в Base64 для безопасного использования в качестве ключа объекта
@@ -260,6 +275,9 @@ def upload_track():
     except S3Error as e:
         return jsonify({'error': f'MinIO error: {str(e)}'}), 500
     except Exception as e:
+        print(f"Upload error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/tracks/<path:filename>', methods=['DELETE'])
