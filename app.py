@@ -7,7 +7,7 @@ import os
 import json
 import hashlib
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify, send_file, Response
 from flask_cors import CORS
 from minio import Minio
@@ -226,7 +226,7 @@ def upload_track():
             metadata = {
                 'X-Amz-Meta-Title': file_meta['title'].encode('utf-8').decode('latin-1'),
                 'X-Amz-Meta-Artist': file_meta['artist'].encode('utf-8').decode('latin-1'),
-                'X-Amz-Meta-Uploaded-At': datetime.utcnow().isoformat(),
+                'X-Amz-Meta-Uploaded-At': datetime.now(timezone.utc).isoformat(),
                 'X-Amz-Meta-Original-Filename': original_filename.encode('utf-8').decode('latin-1')
             }
             

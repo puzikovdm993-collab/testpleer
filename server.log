@@ -11,3 +11,9 @@ Press CTRL+C to quit
  * Debugger is active!
  * Debugger PIN: 134-229-029
 127.0.0.1 - - [08/Mar/2026 15:45:38] "GET /api/health HTTP/1.1" 500 -
+ * Detected change in '/workspace/app.py', reloading
+Ошибка при создании бакета: HTTPConnectionPool(host='localhost', port=9000): Max retries exceeded with url: /music?location= (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fe74369e7e0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+✓ Бакет 'music' готов к работе
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 134-229-029
