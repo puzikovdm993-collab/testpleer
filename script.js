@@ -158,7 +158,11 @@ function handleFileUpload(e) {
                 errorCount++;
                 console.error(`Failed to load metadata for ${file.name}`);
                 // Очищаем blob URL при ошибке
-                URL.revokeObjectURL(url);
+                try {
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    console.warn('Failed to revoke blob URL:', err);
+                }
             });
             
             loadedCount++;
@@ -261,6 +265,10 @@ function removeTrack(index) {
         resetPlayer();
     } else if (index === state.currentTrackIndex) {
         loadTrack(state.currentTrackIndex);
+    } else if (index < state.currentTrackIndex) {
+        // Если удалили трек перед текущим, нужно обновить индекс
+        state.currentTrackIndex--;
+        loadTrack(state.currentTrackIndex);
     }
 }
 
@@ -269,9 +277,23 @@ function loadTrack(index) {
     if (state.playlist.length === 0) return;
     
     state.currentTrackIndex = index;
-    audioPlayer.src = state.playlist[index].src;
-    trackTitle.textContent = state.playlist[index].title;
-    trackArtist.textContent = state.playlist[index].artist;
+    const track = state.playlist[index];
+    
+    // Проверка наличия источника
+    if (!track || !track.src) {
+        console.warn('No track source available');
+        showError('Источник трека недоступен');
+        return;
+    }
+    
+    audioPlayer.src = track.src;
+    trackTitle.textContent = track.title;
+    trackArtist.textContent = track.artist;
+    
+    // Сбрасываем прогресс бар при загрузке нового трека
+    progressBar.value = 0;
+    currentTimeEl.textContent = '0:00';
+    durationEl.textContent = '0:00';
     
     updatePlaylistDisplay();
 }
@@ -294,6 +316,7 @@ function playTrack() {
     const currentTrack = state.playlist[state.currentTrackIndex];
     if (!currentTrack || !currentTrack.src) {
         console.warn('No track selected or track source is missing');
+        showError('Трек не выбран или источник отсутствует');
         return;
     }
     
@@ -321,6 +344,9 @@ function playTrack() {
         console.error('Playback failed:', err);
         showError('Не удалось воспроизвести трек: ' + err.message);
         
+        // Очищаем источник при ошибке
+        audioPlayer.src = '';
+        
         // Автоматический переход к следующему треку при ошибке
         if (err.name === 'NotSupportedError' || err.name === 'MediaElementSourceError') {
             setTimeout(() => {
@@ -339,8 +365,15 @@ function pauseTrack() {
 function playPrevious() {
     if (state.playlist.length === 0) return;
     
-    if (audioPlayer.currentTime > RESTART_THRESHOLD) {
+    // Проверка на валидность currentTime
+    if (!isFinite(audioPlayer.currentTime)) {
         audioPlayer.currentTime = 0;
+    } else if (audioPlayer.currentTime > RESTART_THRESHOLD) {
+        try {
+            audioPlayer.currentTime = 0;
+        } catch (e) {
+            console.error('Failed to reset currentTime:', e);
+        }
     } else {
         let newIndex;
         if (state.isShuffle && state.shuffledIndices.length > 0) {
@@ -392,8 +425,13 @@ function handleTrackEnd() {
     
     switch (state.repeatMode) {
         case 'one':
-            audioPlayer.currentTime = 0;
-            playTrack().catch(e => console.warn('Playback failed:', e));
+            try {
+                audioPlayer.currentTime = 0;
+                playTrack().catch(e => console.warn('Playback failed:', e));
+            } catch (e) {
+                console.error('Error restarting track:', e);
+                playNext();
+            }
             break;
         case 'all':
             playNext();
@@ -434,11 +472,17 @@ function handleAudioError(e) {
     console.error('Audio error:', errorMessage, error);
     showError(errorMessage);
     
+    // Очищаем источник при ошибке загрузки
+    audioPlayer.src = '';
+    
     // Пытаемся переключиться на следующий трек
     if (state.currentTrackIndex < state.playlist.length - 1) {
         setTimeout(() => {
             playNext();
         }, 500);
+    } else {
+        // Если это последний трек, останавливаем плеер
+        pauseTrack();
     }
 }
 
@@ -486,12 +530,23 @@ function cycleRepeatMode() {
 
 // Progress and Volume
 function updateProgress() {
+    // Проверка на валидность duration перед обновлением прогресса
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+        return;
+    }
+    
     const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100 || 0;
     progressBar.value = progress;
     currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
 }
 
 function updateDuration() {
+    // Проверка на валидность duration
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+        console.warn('Invalid duration received');
+        return;
+    }
+    
     durationEl.textContent = formatTime(audioPlayer.duration);
     
     // Update track duration in playlist
@@ -516,7 +571,11 @@ function seekTrack() {
         return;
     }
     
-    audioPlayer.currentTime = time;
+    try {
+        audioPlayer.currentTime = time;
+    } catch (e) {
+        console.error('Failed to set currentTime:', e);
+    }
 }
 
 // Set Volume
@@ -666,7 +725,7 @@ function importPlaylist(e) {
                 id: Date.now() + Math.random(),
                 title: track.title || 'Без названия',
                 artist: track.artist || 'Неизвестный исполнитель',
-                src: '',
+                src: '',  // Empty source - user needs to re-add files
                 fileName: track.fileName || '',
                 duration: track.duration || 0
             }));
@@ -678,7 +737,7 @@ function importPlaylist(e) {
             alert(`Импортировано ${importedTracks.length} треков.\n\nПримечание: Вам нужно будет повторно добавить аудиофайлы, так как сохраняются только метаданные.`);
             
         } catch (err) {
-            alert('Ошибка при импорте плейлиста: ' + err.message);
+            showError('Ошибка при импорте плейлиста: ' + err.message);
         }
     };
     
@@ -691,8 +750,19 @@ function clearPlaylist() {
     if (state.playlist.length === 0) return;
     
     if (confirm('Вы уверены, что хотите очистить плейлист?')) {
+        // Clean up all blob URLs
+        state.playlist.forEach(track => {
+            if (track && track.src && track.src.startsWith('blob:')) {
+                try {
+                    URL.revokeObjectURL(track.src);
+                } catch (e) {
+                    console.warn('Failed to revoke blob URL:', e);
+                }
+            }
+        });
+        
         state.playlist = [];
-        state.currentTrackIndex = 0;
+        state.currentTrackIndex = -1;
         state.shuffledIndices = [];
         savePlaylistToStorage();
         updatePlaylistDisplay();
@@ -788,3 +858,269 @@ function handleKeyboard(e) {
 
 // Initialize on load
 init();
+
+// ============================================
+// MinIO Cloud Storage Integration
+// ============================================
+
+const API_BASE_URL = window.location.origin;
+
+// Загрузка треков из облака MinIO
+async function loadTracksFromCloud() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/tracks`);
+        if (!response.ok) throw new Error('Failed to fetch tracks');
+        
+        const data = await response.json();
+        
+        if (data.tracks && data.tracks.length > 0) {
+            data.tracks.forEach(track => {
+                state.playlist.push({
+                    id: track.id,
+                    title: track.title,
+                    artist: track.artist,
+                    src: `${API_BASE_URL}${track.url}`,
+                    fileName: track.fileName,
+                    duration: 0,
+                    isCloud: true
+                });
+            });
+            
+            savePlaylistToStorage();
+            updatePlaylistDisplay();
+            showError(`Загружено ${data.tracks.length} треков из облака`);
+        }
+    } catch (error) {
+        console.error('Error loading tracks from cloud:', error);
+        showError('Не удалось загрузить треки из облака: ' + error.message);
+    }
+}
+
+// Загрузка файла в облако MinIO
+async function uploadFileToCloud(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/tracks`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Upload failed');
+        }
+        
+        const result = await response.json();
+        return result;
+    } catch (error) {
+        console.error('Error uploading file to cloud:', error);
+        throw error;
+    }
+}
+
+// Удаление трека из облака
+async function deleteTrackFromCloud(fileName) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/tracks/${encodeURIComponent(fileName)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Delete failed');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Error deleting track from cloud:', error);
+        throw error;
+    }
+}
+
+// Проверка доступности облака
+async function checkCloudHealth() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/health`);
+        const data = await response.json();
+        return data.minio_connected;
+    } catch (error) {
+        console.error('Cloud health check failed:', error);
+        return false;
+    }
+}
+
+// Модифицированная функция загрузки файлов с поддержкой облака
+async function handleFileUploadWithCloud(e) {
+    const files = Array.from(e.target.files);
+    
+    if (files.length === 0) {
+        showError('Файлы не выбраны');
+        return;
+    }
+    
+    // Проверяем доступность облака
+    const isCloudAvailable = await checkCloudHealth();
+    
+    let uploadedCount = 0;
+    let errorCount = 0;
+    
+    for (const file of files) {
+        if (!file.type.startsWith('audio/')) {
+            errorCount++;
+            continue;
+        }
+        
+        try {
+            if (isCloudAvailable) {
+                // Загружаем в облако
+                await uploadFileToCloud(file);
+                uploadedCount++;
+            } else {
+                // Локальная загрузка (fallback)
+                const url = URL.createObjectURL(file);
+                const track = {
+                    id: Date.now() + Math.random(),
+                    title: file.name.replace(/\.[^/.]+$/, ''),
+                    artist: 'Неизвестный исполнитель',
+                    src: url,
+                    fileName: file.name,
+                    duration: 0
+                };
+                state.playlist.push(track);
+                
+                const tempAudio = new Audio(url);
+                tempAudio.addEventListener('loadedmetadata', () => {
+                    track.duration = tempAudio.duration;
+                    updatePlaylistDisplay();
+                });
+                uploadedCount++;
+            }
+        } catch (error) {
+            errorCount++;
+            console.error(`Failed to upload ${file.name}:`, error);
+        }
+    }
+    
+    // Если загрузка была в облако, обновляем список треков
+    if (isCloudAvailable && uploadedCount > 0) {
+        await loadTracksFromCloud();
+    } else {
+        savePlaylistToStorage();
+        updatePlaylistDisplay();
+    }
+    
+    if (errorCount > 0) {
+        showError(`Загружено: ${uploadedCount}, ошибок: ${errorCount}`);
+    } else {
+        showError(`Успешно загружено ${uploadedCount} треков`);
+    }
+    
+    fileInput.value = '';
+}
+
+// Добавление кнопки для загрузки в облако в интерфейс
+function addCloudUploadButton() {
+    const playlistHeader = document.querySelector('.playlist-header');
+    if (!playlistHeader) return;
+    
+    const actionsDiv = playlistHeader.querySelector('.playlist-actions');
+    if (!actionsDiv) return;
+    
+    // Кнопка загрузки в облако
+    const cloudUploadBtn = document.createElement('button');
+    cloudUploadBtn.className = 'action-btn cloud-upload-btn';
+    cloudUploadBtn.id = 'cloudUploadBtn';
+    cloudUploadBtn.innerHTML = '☁️ В облако';
+    cloudUploadBtn.title = 'Загрузить выбранные файлы в MinIO облако';
+    
+    // Скрытый input для файлов
+    const cloudFileInput = document.createElement('input');
+    cloudFileInput.type = 'file';
+    cloudFileInput.id = 'cloudFileInput';
+    cloudFileInput.multiple = true;
+    cloudFileInput.accept = 'audio/*';
+    cloudFileInput.hidden = true;
+    
+    cloudUploadBtn.addEventListener('click', () => {
+        cloudFileInput.click();
+    });
+    
+    cloudFileInput.addEventListener('change', handleFileUploadWithCloud);
+    
+    actionsDiv.appendChild(cloudUploadBtn);
+    actionsDiv.appendChild(cloudFileInput);
+    
+    // Кнопка обновления из облака
+    const cloudRefreshBtn = document.createElement('button');
+    cloudRefreshBtn.className = 'action-btn cloud-refresh-btn';
+    cloudRefreshBtn.id = 'cloudRefreshBtn';
+    cloudRefreshBtn.innerHTML = '🔄 Обновить';
+    cloudRefreshBtn.title = 'Обновить список треков из облака';
+    cloudRefreshBtn.addEventListener('click', loadTracksFromCloud);
+    
+    actionsDiv.appendChild(cloudRefreshBtn);
+}
+
+// Индикатор состояния облака
+function addCloudStatusIndicator() {
+    const header = document.querySelector('.header');
+    if (!header) return;
+    
+    const cloudStatus = document.createElement('div');
+    cloudStatus.className = 'cloud-status';
+    cloudStatus.id = 'cloudStatus';
+    cloudStatus.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: #888;
+    `;
+    cloudStatus.innerHTML = `
+        <span class="cloud-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #ff4444;"></span>
+        <span class="cloud-status-text">Отключено</span>
+    `;
+    
+    header.appendChild(cloudStatus);
+    
+    // Периодическая проверка статуса
+    updateCloudStatus();
+    setInterval(updateCloudStatus, 30000);
+}
+
+async function updateCloudStatus() {
+    const statusDot = document.querySelector('.cloud-status-dot');
+    const statusText = document.querySelector('.cloud-status-text');
+    
+    if (!statusDot || !statusText) return;
+    
+    const isConnected = await checkCloudHealth();
+    
+    if (isConnected) {
+        statusDot.style.background = '#44ff44';
+        statusText.textContent = 'MinIO подключено';
+    } else {
+        statusDot.style.background = '#ff4444';
+        statusText.textContent = 'Отключено';
+    }
+}
+
+// Инициализация интеграции с облаком при запуске
+function initCloudIntegration() {
+    addCloudUploadButton();
+    addCloudStatusIndicator();
+    
+    // Автоматическая загрузка треков из облака при старте
+    setTimeout(() => {
+        loadTracksFromCloud();
+    }, 1000);
+}
+
+// Вызываем инициализацию облака после основной инициализации
+const originalInit = init;
+init = function() {
+    originalInit();
+    initCloudIntegration();
+};
