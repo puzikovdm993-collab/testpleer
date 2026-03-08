@@ -158,7 +158,11 @@ function handleFileUpload(e) {
                 errorCount++;
                 console.error(`Failed to load metadata for ${file.name}`);
                 // Очищаем blob URL при ошибке
-                URL.revokeObjectURL(url);
+                try {
+                    URL.revokeObjectURL(url);
+                } catch (err) {
+                    console.warn('Failed to revoke blob URL:', err);
+                }
             });
             
             loadedCount++;
@@ -261,6 +265,10 @@ function removeTrack(index) {
         resetPlayer();
     } else if (index === state.currentTrackIndex) {
         loadTrack(state.currentTrackIndex);
+    } else if (index < state.currentTrackIndex) {
+        // Если удалили трек перед текущим, нужно обновить индекс
+        state.currentTrackIndex--;
+        loadTrack(state.currentTrackIndex);
     }
 }
 
@@ -269,9 +277,23 @@ function loadTrack(index) {
     if (state.playlist.length === 0) return;
     
     state.currentTrackIndex = index;
-    audioPlayer.src = state.playlist[index].src;
-    trackTitle.textContent = state.playlist[index].title;
-    trackArtist.textContent = state.playlist[index].artist;
+    const track = state.playlist[index];
+    
+    // Проверка наличия источника
+    if (!track || !track.src) {
+        console.warn('No track source available');
+        showError('Источник трека недоступен');
+        return;
+    }
+    
+    audioPlayer.src = track.src;
+    trackTitle.textContent = track.title;
+    trackArtist.textContent = track.artist;
+    
+    // Сбрасываем прогресс бар при загрузке нового трека
+    progressBar.value = 0;
+    currentTimeEl.textContent = '0:00';
+    durationEl.textContent = '0:00';
     
     updatePlaylistDisplay();
 }
@@ -294,6 +316,7 @@ function playTrack() {
     const currentTrack = state.playlist[state.currentTrackIndex];
     if (!currentTrack || !currentTrack.src) {
         console.warn('No track selected or track source is missing');
+        showError('Трек не выбран или источник отсутствует');
         return;
     }
     
@@ -321,6 +344,9 @@ function playTrack() {
         console.error('Playback failed:', err);
         showError('Не удалось воспроизвести трек: ' + err.message);
         
+        // Очищаем источник при ошибке
+        audioPlayer.src = '';
+        
         // Автоматический переход к следующему треку при ошибке
         if (err.name === 'NotSupportedError' || err.name === 'MediaElementSourceError') {
             setTimeout(() => {
@@ -339,8 +365,15 @@ function pauseTrack() {
 function playPrevious() {
     if (state.playlist.length === 0) return;
     
-    if (audioPlayer.currentTime > RESTART_THRESHOLD) {
+    // Проверка на валидность currentTime
+    if (!isFinite(audioPlayer.currentTime)) {
         audioPlayer.currentTime = 0;
+    } else if (audioPlayer.currentTime > RESTART_THRESHOLD) {
+        try {
+            audioPlayer.currentTime = 0;
+        } catch (e) {
+            console.error('Failed to reset currentTime:', e);
+        }
     } else {
         let newIndex;
         if (state.isShuffle && state.shuffledIndices.length > 0) {
@@ -392,8 +425,13 @@ function handleTrackEnd() {
     
     switch (state.repeatMode) {
         case 'one':
-            audioPlayer.currentTime = 0;
-            playTrack().catch(e => console.warn('Playback failed:', e));
+            try {
+                audioPlayer.currentTime = 0;
+                playTrack().catch(e => console.warn('Playback failed:', e));
+            } catch (e) {
+                console.error('Error restarting track:', e);
+                playNext();
+            }
             break;
         case 'all':
             playNext();
@@ -434,11 +472,17 @@ function handleAudioError(e) {
     console.error('Audio error:', errorMessage, error);
     showError(errorMessage);
     
+    // Очищаем источник при ошибке загрузки
+    audioPlayer.src = '';
+    
     // Пытаемся переключиться на следующий трек
     if (state.currentTrackIndex < state.playlist.length - 1) {
         setTimeout(() => {
             playNext();
         }, 500);
+    } else {
+        // Если это последний трек, останавливаем плеер
+        pauseTrack();
     }
 }
 
@@ -486,12 +530,23 @@ function cycleRepeatMode() {
 
 // Progress and Volume
 function updateProgress() {
+    // Проверка на валидность duration перед обновлением прогресса
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+        return;
+    }
+    
     const progress = (audioPlayer.currentTime / audioPlayer.duration) * 100 || 0;
     progressBar.value = progress;
     currentTimeEl.textContent = formatTime(audioPlayer.currentTime);
 }
 
 function updateDuration() {
+    // Проверка на валидность duration
+    if (!audioPlayer.duration || !isFinite(audioPlayer.duration)) {
+        console.warn('Invalid duration received');
+        return;
+    }
+    
     durationEl.textContent = formatTime(audioPlayer.duration);
     
     // Update track duration in playlist
@@ -516,7 +571,11 @@ function seekTrack() {
         return;
     }
     
-    audioPlayer.currentTime = time;
+    try {
+        audioPlayer.currentTime = time;
+    } catch (e) {
+        console.error('Failed to set currentTime:', e);
+    }
 }
 
 // Set Volume
@@ -666,7 +725,7 @@ function importPlaylist(e) {
                 id: Date.now() + Math.random(),
                 title: track.title || 'Без названия',
                 artist: track.artist || 'Неизвестный исполнитель',
-                src: '',
+                src: '',  // Empty source - user needs to re-add files
                 fileName: track.fileName || '',
                 duration: track.duration || 0
             }));
@@ -678,7 +737,7 @@ function importPlaylist(e) {
             alert(`Импортировано ${importedTracks.length} треков.\n\nПримечание: Вам нужно будет повторно добавить аудиофайлы, так как сохраняются только метаданные.`);
             
         } catch (err) {
-            alert('Ошибка при импорте плейлиста: ' + err.message);
+            showError('Ошибка при импорте плейлиста: ' + err.message);
         }
     };
     
@@ -691,8 +750,19 @@ function clearPlaylist() {
     if (state.playlist.length === 0) return;
     
     if (confirm('Вы уверены, что хотите очистить плейлист?')) {
+        // Clean up all blob URLs
+        state.playlist.forEach(track => {
+            if (track && track.src && track.src.startsWith('blob:')) {
+                try {
+                    URL.revokeObjectURL(track.src);
+                } catch (e) {
+                    console.warn('Failed to revoke blob URL:', e);
+                }
+            }
+        });
+        
         state.playlist = [];
-        state.currentTrackIndex = 0;
+        state.currentTrackIndex = -1;
         state.shuffledIndices = [];
         savePlaylistToStorage();
         updatePlaylistDisplay();
