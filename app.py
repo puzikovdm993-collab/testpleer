@@ -7,14 +7,13 @@ import os
 import json
 import hashlib
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify, send_file, Response
 from flask_cors import CORS
 from minio import Minio
 from minio.error import S3Error
 from werkzeug.utils import secure_filename
 from io import BytesIO
-from cryptography.fernet import Fernet
 
 app = Flask(__name__)
 CORS(app)
@@ -25,37 +24,6 @@ MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY', 'minioadmin')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY', 'minioadmin')
 MINIO_BUCKET = os.getenv('MINIO_BUCKET', 'music')
 MINIO_SECURE = os.getenv('MINIO_SECURE', 'false').lower() == 'true'
-
-# Ключ шифрования для имен файлов (генерируется один раз и хранится в переменной окружения)
-ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
-if not ENCRYPTION_KEY:
-    # Если ключ не задан, генерируем новый (в продакшене нужно сохранять ключ!)
-    ENCRYPTION_KEY = Fernet.generate_key().decode('utf-8')
-    print(f"⚠ Сгенерирован новый ключ шифрования: {ENCRYPTION_KEY}")
-    print("⚠ Сохраните его в переменной окружения ENCRYPTION_KEY для последующих запусков")
-else:
-    ENCRYPTION_KEY = ENCRYPTION_KEY.encode('utf-8')
-
-cipher_suite = Fernet(ENCRYPTION_KEY if isinstance(ENCRYPTION_KEY, bytes) else ENCRYPTION_KEY.encode('utf-8'))
-
-def encrypt_filename(filename):
-    """Зашифровать имя файла."""
-    encrypted = cipher_suite.encrypt(filename.encode('utf-8'))
-    # Кодируем в base64 и заменяем символы для безопасности в URL/именах файлов
-    return base64.urlsafe_b64encode(encrypted).decode('utf-8').replace('=', '')
-
-def decrypt_filename(encrypted_filename):
-    """Расшифровать имя файла."""
-    # Добавляем padding обратно если нужно
-    padding = 4 - len(encrypted_filename) % 4
-    if padding != 4:
-        encrypted_filename += '=' * padding
-    try:
-        decoded = base64.urlsafe_b64decode(encrypted_filename)
-        decrypted = cipher_suite.decrypt(decoded)
-        return decrypted.decode('utf-8')
-    except Exception:
-        return None
 
 # Инициализация клиента MinIO
 minio_client = None
@@ -133,27 +101,34 @@ def get_tracks():
             # Получаем метаданные объекта
             stat = client.stat_object(MINIO_BUCKET, obj.object_name)
             
-            # Пытаемся расшифровать имя файла
-            encrypted_name = obj.object_name.rsplit('.', 1)[0]
-            decrypted_name = decrypt_filename(encrypted_name)
-            
-            # Если расшифровка не удалась, используем оригинальное имя из метаданных или зашифрованное
-            if decrypted_name:
-                ext = obj.object_name.rsplit('.', 1)[1] if '.' in obj.object_name else ''
-                original_filename = f"{decrypted_name}.{ext}" if ext else decrypted_name
-            else:
-                # Для старых файлов или если расшифровка не удалась
-                original_filename = stat.metadata.get('X-Amz-Meta-Original-Filename', obj.object_name)
+            # Используем оригинальное имя файла из метаданных или имя объекта
+            original_filename = stat.metadata.get('X-Amz-Meta-Original-Filename', obj.object_name)
             
             # Извлекаем метаданные из имени файла
             file_meta = get_file_metadata(original_filename)
+            
+            # Получаем метаданные из MinIO и декодируем из UTF-8 (были закодированы как latin-1)
+            title = stat.metadata.get('X-Amz-Meta-Title')
+            artist = stat.metadata.get('X-Amz-Meta-Artist')
+            
+            # Декодируем метаданные: они хранятся как latin-1, но содержат UTF-8 байты
+            if title:
+                try:
+                    title = title.encode('latin-1').decode('utf-8')
+                except (UnicodeDecodeError, AttributeError):
+                    pass
+            if artist:
+                try:
+                    artist = artist.encode('latin-1').decode('utf-8')
+                except (UnicodeDecodeError, AttributeError):
+                    pass
             
             track = {
                 'id': hashlib.md5(obj.object_name.encode()).hexdigest()[:12],
                 'fileName': obj.object_name,
                 'originalFileName': original_filename,
-                'title': stat.metadata.get('X-Amz-Meta-Title', file_meta['title']),
-                'artist': stat.metadata.get('X-Amz-Meta-Artist', file_meta['artist']),
+                'title': title or file_meta['title'],
+                'artist': artist or file_meta['artist'],
                 'size': stat.size,
                 'contentType': stat.content_type,
                 'lastModified': stat.last_modified.isoformat() if stat.last_modified else None,
@@ -229,14 +204,15 @@ def upload_track():
             if not allowed_file(file.filename):
                 return jsonify({'error': f'File type not allowed: {file.filename}'}), 400
             
-            # Получаем оригинальное имя файла и создаем зашифрованное имя
+            # Получаем оригинальное имя файла
             original_filename = file.filename
             ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'mp3'
             
-            # Шифруем имя файла (без расширения) и добавляем расширение
+            # Кодируем имя файла в Base64 для безопасного использования в качестве ключа объекта
+            # Это решает проблему SignatureDoesNotMatch с не-ASCII символами
             name_without_ext = original_filename.rsplit('.', 1)[0]
-            encrypted_name = encrypt_filename(name_without_ext)
-            safe_filename = f"{encrypted_name}.{ext}"
+            safe_name = base64.urlsafe_b64encode(name_without_ext.encode('utf-8')).decode('ascii')
+            safe_filename = f"{safe_name}.{ext}"
             
             # Читаем файл в память
             file_data = file.read()
@@ -245,12 +221,13 @@ def upload_track():
             # Извлекаем метаданные из оригинального имени
             file_meta = get_file_metadata(original_filename)
             
-            # Метаданные для MinIO - кодируем в UTF-8 явно
+            # Метаданные для MinIO - кодируем в UTF-8 явно для избежания ошибок с не-ASCII символами
+            # MinIO/S3 требует чтобы значения метаданных были ASCII, поэтому кодируем Unicode в UTF-8 байты
             metadata = {
-                'X-Amz-Meta-Title': file_meta['title'],
-                'X-Amz-Meta-Artist': file_meta['artist'],
-                'X-Amz-Meta-Uploaded-At': datetime.utcnow().isoformat(),
-                'X-Amz-Meta-Original-Filename': original_filename.encode('utf-8').decode('utf-8')
+                'X-Amz-Meta-Title': file_meta['title'].encode('utf-8').decode('latin-1'),
+                'X-Amz-Meta-Artist': file_meta['artist'].encode('utf-8').decode('latin-1'),
+                'X-Amz-Meta-Uploaded-At': datetime.now(timezone.utc).isoformat(),
+                'X-Amz-Meta-Original-Filename': original_filename.encode('utf-8').decode('latin-1')
             }
             
             # Загружаем в MinIO

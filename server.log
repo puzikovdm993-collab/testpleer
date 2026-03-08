@@ -1,13 +1,19 @@
-Ошибка при создании бакета: HTTPConnectionPool(host='localhost', port=9000): Max retries exceeded with url: /music?location= (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f91866d59a0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+Ошибка при создании бакета: HTTPConnectionPool(host='localhost', port=9000): Max retries exceeded with url: /music?location= (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fecadb62630>: Failed to establish a new connection: [Errno 111] Connection refused'))
 ✓ Бакет 'music' готов к работе
  * Serving Flask app 'app'
  * Debug mode: on
-Address already in use
-Port 5000 is in use by another program. Either identify and stop that program, or start the server with a different port.
-s (0.0.0.0)
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
  * Running on http://127.0.0.1:5000
- * Running on http://21.0.5.242:5000
+ * Running on http://21.0.1.177:5000
 Press CTRL+C to quit
  * Restarting with stat
  * Debugger is active!
- * Debugger PIN: 921-464-151
+ * Debugger PIN: 134-229-029
+127.0.0.1 - - [08/Mar/2026 15:45:38] "GET /api/health HTTP/1.1" 500 -
+ * Detected change in '/workspace/app.py', reloading
+Ошибка при создании бакета: HTTPConnectionPool(host='localhost', port=9000): Max retries exceeded with url: /music?location= (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fe74369e7e0>: Failed to establish a new connection: [Errno 111] Connection refused'))
+✓ Бакет 'music' готов к работе
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 134-229-029
