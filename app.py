@@ -183,28 +183,33 @@ def upload_track():
             if not allowed_file(file.filename):
                 return jsonify({'error': f'File type not allowed: {file.filename}'}), 400
             
-            filename = secure_filename(file.filename)
+            # Получаем оригинальное имя файла и создаем безопасное ID
+            original_filename = file.filename
+            # Создаем уникальное имя файла используя хеш для избежания проблем с кодировкой
+            file_hash = hashlib.md5(f"{original_filename}_{datetime.utcnow().isoformat()}".encode('utf-8')).hexdigest()
+            ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'mp3'
+            safe_filename = f"{file_hash}.{ext}"
             
             # Читаем файл в память
             file_data = file.read()
             file_size = len(file_data)
             
-            # Извлекаем метаданные
-            file_meta = get_file_metadata(filename)
+            # Извлекаем метаданные из оригинального имени
+            file_meta = get_file_metadata(original_filename)
             
-            # Метаданные для MinIO
+            # Метаданные для MinIO - кодируем в UTF-8 явно
             metadata = {
                 'X-Amz-Meta-Title': file_meta['title'],
                 'X-Amz-Meta-Artist': file_meta['artist'],
                 'X-Amz-Meta-Uploaded-At': datetime.utcnow().isoformat(),
-                'X-Amz-Meta-Original-Filename': filename
+                'X-Amz-Meta-Original-Filename': original_filename.encode('utf-8').decode('utf-8')
             }
             
             # Загружаем в MinIO
             client = get_minio_client()
             client.put_object(
                 MINIO_BUCKET,
-                filename,
+                safe_filename,
                 BytesIO(file_data),
                 file_size,
                 content_type=file.content_type or 'audio/mpeg',
@@ -212,12 +217,13 @@ def upload_track():
             )
             
             track = {
-                'id': hashlib.md5(filename.encode()).hexdigest()[:12],
-                'fileName': filename,
+                'id': file_hash[:12],
+                'fileName': safe_filename,
+                'originalFileName': original_filename,
                 'title': file_meta['title'],
                 'artist': file_meta['artist'],
                 'size': file_size,
-                'url': f'/api/tracks/{filename}'
+                'url': f'/api/tracks/{safe_filename}'
             }
             uploaded_tracks.append(track)
         
