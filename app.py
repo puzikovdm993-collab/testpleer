@@ -14,6 +14,14 @@ from minio import Minio
 from minio.error import S3Error
 from werkzeug.utils import secure_filename
 from io import BytesIO
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Кэш для загруженных треков: {filename: data}
+track_cache = {}
 
 app = Flask(__name__)
 CORS(app)
@@ -151,7 +159,7 @@ def get_tracks():
 
 @app.route('/api/tracks/<path:filename>', methods=['GET'])
 def get_track(filename):
-    """Скачать трек из MinIO (потоковая передача)."""
+    """Скачать трек из кэша или MinIO (потоковая передача)."""
     try:
         ensure_bucket_exists()
         client = get_minio_client()
@@ -167,41 +175,77 @@ def get_track(filename):
         
         logger.info(f"Streaming track: {decoded_filename}")
         
+        # Проверяем кэш сначала
+        if decoded_filename in track_cache:
+            logger.info(f"Cache hit for: {decoded_filename}")
+            file_data = track_cache[decoded_filename]
+            file_size = len(file_data)
+            
+            # Определяем content-type из расширения
+            ext = decoded_filename.rsplit('.', 1)[1].lower() if '.' in decoded_filename else 'mp3'
+            content_types = {
+                'mp3': 'audio/mpeg',
+                'wav': 'audio/wav',
+                'ogg': 'audio/ogg',
+                'flac': 'audio/flac',
+                'aac': 'audio/aac',
+                'm4a': 'audio/mp4',
+                'wma': 'audio/x-ms-wma',
+                'opus': 'audio/opus'
+            }
+            content_type = content_types.get(ext, 'audio/mpeg')
+            
+            return Response(
+                file_data,
+                mimetype=content_type,
+                headers={
+                    'Content-Disposition': f'inline; filename="{os.path.basename(decoded_filename)}"',
+                    'Cache-Control': 'public, max-age=31536000',
+                    'Accept-Ranges': 'bytes',
+                    'Content-Length': str(file_size)
+                }
+            )
+        
+        # Если нет в кэше, загружаем из MinIO и сохраняем в кэш
+        logger.info(f"Cache miss, loading from MinIO: {decoded_filename}")
+        
         # Проверяем существование объекта
         try:
             stat = client.stat_object(MINIO_BUCKET, decoded_filename)
         except S3Error:
             return jsonify({'error': 'Track not found'}), 404
         
-        # Получаем объект
+        # Получаем объект целиком в память
         response = client.get_object(MINIO_BUCKET, decoded_filename)
+        file_data = response.read()
+        response.close()
+        response.release_conn()
+        
+        # Сохраняем в кэш
+        track_cache[decoded_filename] = file_data
+        logger.info(f"Cached track: {decoded_filename} ({len(file_data)} bytes)")
         
         # Определяем content-type
         content_type = stat.content_type or 'audio/mpeg'
-        
-        # Потоковая передача данных с поддержкой range requests
-        def generate():
-            try:
-                for chunk in response.stream(32768):
-                    yield chunk
-            finally:
-                response.close()
-                response.release_conn()
+        file_size = len(file_data)
         
         return Response(
-            generate(),
+            file_data,
             mimetype=content_type,
             headers={
                 'Content-Disposition': f'inline; filename="{os.path.basename(decoded_filename)}"',
                 'Cache-Control': 'public, max-age=31536000',
                 'Accept-Ranges': 'bytes',
-                'Content-Length': str(stat.size)
+                'Content-Length': str(file_size)
             }
         )
     
     except S3Error as e:
         return jsonify({'error': f'MinIO error: {str(e)}'}), 500
     except Exception as e:
+        logger.error(f"Error streaming track: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/tracks', methods=['POST'])
